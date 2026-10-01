@@ -1,7 +1,7 @@
 /* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="1.1.0";
+const APP_VERSION="1.2.0";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
@@ -13,8 +13,8 @@ const PHOTO_TAGS=["Structure","Lid / frame","Interior","Condition / defect","Deb
 const STATUS_LABEL={draft:"Draft",done:"Complete",checked:"Checked"};
 
 const $=s=>document.querySelector(s);
-const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const num=v=>{const n=parseFloat(String(v??"").replace(/[^0-9.\-]/g,""));return isFinite(n)?n:null};
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const num=v=>{const n=parseFloat(String(v==null?"":v).replace(/[^0-9.\-]/g,""));return isFinite(n)?n:null};
 const today=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`};
 const rid=p=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const clean=s=>String(s||"").replace(/[^\w.-]+/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"");
@@ -24,7 +24,7 @@ let idbConn=null;
 function idb(){return new Promise((res,rej)=>{if(idbConn)return res(idbConn);const r=indexedDB.open("invertSheetsApp",1);
   r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains("sheets"))d.createObjectStore("sheets",{keyPath:"id"});if(!d.objectStoreNames.contains("photos"))d.createObjectStore("photos")};
   r.onsuccess=()=>{idbConn=r.result;res(idbConn)};r.onerror=()=>rej(r.error)})}
-function tx(store,mode,fn){return idb().then(d=>new Promise((res,rej)=>{const t=d.transaction(store,mode);const out=fn(t.objectStore(store));t.oncomplete=()=>res(out instanceof IDBRequest?(out.result??null):undefined);t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error)}))}
+function tx(store,mode,fn){return idb().then(d=>new Promise((res,rej)=>{const t=d.transaction(store,mode);const out=fn(t.objectStore(store));t.oncomplete=()=>res(out instanceof IDBRequest?(out.result==null?null:out.result):undefined);t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error)}))}
 const dbAllSheets=()=>tx("sheets","readonly",s=>s.getAll());
 const dbPutSheet=sh=>tx("sheets","readwrite",s=>{s.put(JSON.parse(JSON.stringify(sh)))});
 const dbDelSheet=id=>tx("sheets","readwrite",s=>{s.delete(id)});
@@ -166,7 +166,7 @@ const isIOS=()=>/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platfor
 function installCardHTML(){
   if(isStandalone())return "";
   if(deferredInstall)return `<div class="installcard"><p><b>Install on this device</b>Adds AEG Invert Sheet to the home screen. It then opens full screen and works with no signal.</p><button class="btn primary" id="installBtn">Install app</button></div>`;
-  if(isIOS())return `<div class="installcard"><p><b>Install on this iPad</b>Tap the Share button <span aria-hidden="true">(square with arrow)</span> in Safari, then <strong>Add to Home Screen</strong>. Open it from the home screen icon after that.</p></div>`;
+  if(isIOS())return `<div class="installcard"><p><b>Install on this ${/iPhone|iPod/.test(navigator.userAgent)?"iPhone":"iPad"}</b>Tap the Share button <span aria-hidden="true">(square with arrow)</span> in Safari, then <strong>Add to Home Screen</strong>. Open it from the home screen icon after that.</p></div>`;
   return "";
 }
 
@@ -175,7 +175,7 @@ function renderList(app){
   const jobs=[...new Set(all.map(s=>s.jobNo||""))].sort();
   const q=filter.q.trim().toLowerCase();
   const list=all.filter(s=>(!filter.job||s.jobNo===filter.job)&&(!q||[s.pointNo,s.location,s.project,s.jobNo,s.initials,s.comments].join(" ").toLowerCase().includes(q)));
-  const groups={};for(const s of list)(groups[s.jobNo||"—"]??=[]).push(s);
+  const groups={};for(const s of list){const g=s.jobNo||"—";(groups[g]=groups[g]||[]).push(s)};
   let h=installCardHTML();
   h+=`<div class="listhead"><h1>Structures logged</h1></div>`;
   if(all.length)h+=`<div class="tools"><input id="q" type="search" placeholder="Search point, location, initials…" value="${esc(filter.q)}" aria-label="Search sheets">
@@ -186,7 +186,7 @@ function renderList(app){
     h+=`<div class="empty"><b>No matches</b>Try a different point number or clear the job filter.</div>`;
   }else{
     for(const [job,arr] of Object.entries(groups)){
-      const loc=arr.find(s=>s.location)?.location||"";
+      const loc=(arr.find(s=>s.location)||{}).location||"";
       h+=`<div class="jobgroup"><h2><b>Job ${esc(job)}</b>${esc(loc)} · ${arr.length} structure${arr.length>1?"s":""}</h2><div class="rows">`;
       for(const s of arr){
         const st=statusOf(s);const code=(STRUCTS.find(x=>x[0]===s.structure)||[])[1];const np=(s.photos||[]).length;
@@ -365,7 +365,7 @@ function rerender(){const y=scrollY;const id=document.activeElement&&document.ac
 /* ---------- export / import ---------- */
 function toCSV(list){
   const cols=["Job No","Client Job No","Project","Location","Field Initials","Date","Sheet","Of","Point No","Rim Elev","Structure","Structure Code","Lid Type","Text on Lid","Lid Shape","Lid Size","Condition","Construction","Inside Dim","Rim to Bottom (ft)","Bottom Note","Pipe Dir","Size (in)","Material","Inv (ft)","Inv Elev","Inv Note","T/Pipe (ft)","T/Water (ft)","T/Debris (ft)","Photos","Comments","Checked By","Check Date","Status"];
-  const q=v=>{v=String(v??"");return /[",\n]/.test(v)?`"${v.replace(/"/g,'""')}"`:v};
+  const q=v=>{v=String(v==null?"":v);return /[",\n]/.test(v)?`"${v.replace(/"/g,'""')}"`:v};
   const rows=[cols];
   for(const s of list){
     const code=(STRUCTS.find(x=>x[0]===s.structure)||[])[1]||"";
@@ -468,7 +468,7 @@ async function renderMenu(app){
 /* ---------- print (AEG paper layout) ---------- */
 let printOpt={job:"",sel:null,photos:true,per:4};
 function openPrint({job="",only=null}={}){
-  printOpt={...printOpt,job:only?(sheets[only]?.jobNo||""):job,sel:only?new Set([only]):null};
+  printOpt={...printOpt,job:only?((sheets[only]||{}).jobNo||""):job,sel:only?new Set([only]):null};
   view={name:"print"};render();scrollTo(0,0);
 }
 const cbx=on=>`<span class="cb${on?" on":""}"></span>`;
@@ -484,7 +484,7 @@ function sheetPageHTML(s,pageNo,pageTotal){
   const order=["NW","N","NE","W","*","E","SW","S","SE"];
   return `<article class="pg"><div class="frame">
     <div class="p-head">
-      <div class="p-co"><div class="lg"><span class="mark">AEG</span><span class="nm">ATLAS ENGINEERING<br>GROUP, LTD.</span></div>
+      <div class="p-co"><img class="plogo" src="brand/aeg-logo.png" alt="Atlas Engineering Group, Ltd.">
         <div>110 Estate Drive</div><div>Deerfield, Illinois 60015</div><div>Tel (847) 753-8020 &nbsp;Fax (847) 753-8023</div><div>www.aegroupltd.com</div></div>
       <div class="p-fields">
         <div class="ln"><span>Project name:</span>${uline(s.project)}</div>
@@ -513,7 +513,7 @@ function photoPagesHTML(s,per,startNo,pageTotal){
   const ps=s.photos||[];const out=[];const pages=Math.ceil(ps.length/per);
   for(let i=0;i<pages;i++){
     const chunk=ps.slice(i*per,(i+1)*per);const cls=per===1?"n1":per===2?"n2":per===4?"n4":"n6";
-    out.push(`<article class="pg photos"><div class="ph-head"><b>Point ${esc(s.pointNo||"—")} · Photos</b><span>AEG Job ${esc(s.jobNo||"—")} · ${esc(s.structure||"")}${s.location?" · "+esc(s.location):""}<br>${esc(fmtDate(s.date))}${s.initials?" · "+esc(s.initials):""} · ${i+1} of ${pages}</span></div>
+    out.push(`<article class="pg photos"><div class="ph-head"><span style="display:flex;align-items:center;gap:10px"><img src="brand/aeg-mark.png" alt="AEG" style="height:.32in"><b>Point ${esc(s.pointNo||"—")} · Photos</b></span><span>AEG Job ${esc(s.jobNo||"—")} · ${esc(s.structure||"")}${s.location?" · "+esc(s.location):""}<br>${esc(fmtDate(s.date))}${s.initials?" · "+esc(s.initials):""} · ${i+1} of ${pages}</span></div>
       <div class="phgrid ${cls}">${chunk.map((p,j)=>{const n=i*per+j;return `<figure class="phcell" style="margin:0"><div class="im"><img data-key="${esc(p.key)}" alt="${esc(p.tag)}"${urlCache.has(p.key)?` src="${urlCache.get(p.key)}"`:""}></div><figcaption class="cp"><span style="color:#111;font-family:var(--f-body);font-size:8pt;text-align:left"><b>${n+1}. ${esc(p.tag)}</b>${p.note?" — "+esc(p.note):""}</span><span>${esc(new Date(p.takenAt).toLocaleString([],{month:"numeric",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"}))}<br>${esc(photoName(s,p,n))}</span></figcaption></figure>`}).join("")}</div>
       <div class="p-foot"><span>AEG Job ${esc(s.jobNo||"—")} · Point ${esc(s.pointNo||"—")}</span><span>Page ${startNo+i} of ${pageTotal}</span></div></article>`);
   }

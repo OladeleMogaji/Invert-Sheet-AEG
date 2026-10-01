@@ -263,3 +263,5 @@ body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
   .pg{box-shadow:none!important;break-after:page;page-break-after:always;margin:0!important}
   .pg:last-child{break-after:auto;page-break-after:auto}
 }
+.logo{height:36px;width:auto;background:#fff;border-radius:4px;padding:3px 4px;display:block;flex:none}
+.p-co .plogo{height:.82in;width:auto;margin-bottom:4px}

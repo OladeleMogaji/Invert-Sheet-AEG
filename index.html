@@ -17,7 +17,7 @@
 </head>
 <body>
 <header class="bar"><div class="bar-in">
-  <div class="brand">AEG Invert Sheet<small>Atlas Engineering Group</small></div>
+  <img class="logo" src="brand/aeg-mark.png" alt="AEG"><div class="brand">Invert Sheet<small>Atlas Engineering Group</small></div>
   <div class="sp"></div>
   <div class="sync" id="sync" data-s="live"><i></i><span>Saved on device</span></div>
   <button class="iconbtn" id="menuBtn" aria-label="Backup and settings">Backup</button>
@@ -27,6 +27,10 @@
 <div class="toast" id="toast" hidden></div>
 <div id="lb"></div>
 <div id="upd"></div>
+<div id="fatal" hidden style="position:fixed;left:12px;right:12px;bottom:12px;z-index:99;background:#B42318;color:#fff;padding:12px;border-radius:6px;font:14px/1.4 system-ui,sans-serif"></div>
+<script>
+window.onerror=function(m,src,l,c){var f=document.getElementById("fatal");if(f){f.hidden=false;f.textContent="Something went wrong: "+m+" (line "+l+"). Take a screenshot of this and send it over."}};
+</script>
 <script src="vendor/jszip.min.js"></script>
 <script src="app.js"></script>
 </body>
