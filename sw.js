@@ -1,5 +1,5 @@
 // Offline app shell. Bump VERSION on every release so devices pick up the update.
-const VERSION = "invert-sheets-v1.0.0";
+const VERSION = "aeg-invert-sheet-v1.1.0";
 const SHELL = [
   "./", "index.html", "app.css", "app.js", "manifest.webmanifest",
   "vendor/jszip.min.js",

@@ -1,7 +1,7 @@
-/* Invert Sheets — offline field app. All data lives on the device (IndexedDB). */
+/* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="1.0.0";
+const APP_VERSION="1.1.0";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
@@ -152,6 +152,7 @@ function render(){
   if(view.name==="edit"&&sheets[view.id])renderEdit(app);
   else if(view.name==="export")renderExport(app);
   else if(view.name==="menu")renderMenu(app);
+  else if(view.name==="print")renderPrint(app);
   else{view={name:"list"};renderList(app)}
 }
 function setActions(items){
@@ -164,7 +165,7 @@ const isIOS=()=>/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platfor
 
 function installCardHTML(){
   if(isStandalone())return "";
-  if(deferredInstall)return `<div class="installcard"><p><b>Install on this device</b>Adds Invert Sheets to the home screen. It then opens full screen and works with no signal.</p><button class="btn primary" id="installBtn">Install app</button></div>`;
+  if(deferredInstall)return `<div class="installcard"><p><b>Install on this device</b>Adds AEG Invert Sheet to the home screen. It then opens full screen and works with no signal.</p><button class="btn primary" id="installBtn">Install app</button></div>`;
   if(isIOS())return `<div class="installcard"><p><b>Install on this iPad</b>Tap the Share button <span aria-hidden="true">(square with arrow)</span> in Safari, then <strong>Add to Home Screen</strong>. Open it from the home screen icon after that.</p></div>`;
   return "";
 }
@@ -205,7 +206,7 @@ function renderList(app){
   const ib=$("#installBtn");if(ib)ib.onclick=async()=>{deferredInstall.prompt();await deferredInstall.userChoice.catch(()=>{});deferredInstall=null;render()};
   const le=$("#loadEx");if(le)le.onclick=loadExample;
   const ie=$("#impEmpty");if(ie)ie.onchange=()=>{const f=ie.files[0];ie.value="";if(f)importZip(f)};
-  setActions([all.length?{label:"Export",cls:"ghost",fn:()=>{view={name:"export"};render();scrollTo(0,0)}}:null,{label:"New sheet",cls:"primary",fn:newSheet}]);
+  setActions([all.length?{label:"Export",cls:"ghost",fn:()=>{view={name:"export"};render();scrollTo(0,0)}}:null,all.length?{label:"Print",cls:"ghost",fn:()=>openPrint({job:filter.job})}:null,{label:"New sheet",cls:"primary",fn:newSheet}]);
 }
 
 function newSheet(){
@@ -286,7 +287,7 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape"&&view.photo){const b
 function renderEdit(app){
   const s=sheets[view.id];const st=statusOf(s);
   let h=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← All sheets</button>
-    <h1>Point <span>${esc(s.pointNo||"—")}</span></h1><span class="chip ${st}">${STATUS_LABEL[st]}</span></div>
+    <h1>Point <span>${esc(s.pointNo||"—")}</span></h1><span class="chip ${st}">${STATUS_LABEL[st]}</span><button class="iconbtn" id="printOne" style="color:var(--ink)">Print</button></div>
     <div class="saved" id="saved">Saved on device</div><div class="edgrid">`;
   h+=`<section class="card"><h2>Job <small>Copied to each new sheet</small></h2><div class="body">
     <div class="grid2">${field("project","Project name",s.project)}${field("location","Location",s.location,{ph:"e.g. IL 53 + Boughton Rd"})}</div>
@@ -335,6 +336,7 @@ function renderEdit(app){
 
   wirePhotos(s);if(view.photo)renderLightbox();
   $("#back").onclick=()=>{view={name:"list"};render();scrollTo(0,0)};
+  $("#printOne").onclick=()=>{flushSaves();openPrint({only:s.id})};
   app.querySelectorAll("[data-k]").forEach(el=>{
     el.addEventListener("input",()=>update(s.id,{[el.dataset.k]:el.value}));
     el.addEventListener("change",()=>{if(["pointNo","rim","rimToBottom","checkedBy"].includes(el.dataset.k))rerender()});
@@ -400,7 +402,7 @@ async function importZip(file){
     toast("Reading ZIP…",10000);
     const zip=await JSZip.loadAsync(file);
     const meta=zip.file("sheets.json");
-    if(!meta){toast("That ZIP has no sheets.json. Use a ZIP exported from Invert Sheets.",5000);return}
+    if(!meta){toast("That ZIP has no sheets.json. Use a ZIP exported from AEG Invert Sheet.",5000);return}
     const data=JSON.parse(await meta.async("string"));
     let added=0,updated=0,skipped=0,photos=0;
     for(const s of (data.sheets||[])){
@@ -415,7 +417,7 @@ async function importZip(file){
     }
     render();
     toast(`Imported: ${added} new, ${updated} updated, ${skipped} already current · ${photos} photos`,5000);
-  }catch(e){toast("Couldn't read that file. Pick a ZIP exported from Invert Sheets.",5000)}
+  }catch(e){toast("Couldn't read that file. Pick a ZIP exported from AEG Invert Sheet.",5000)}
 }
 
 function renderExport(app){
@@ -463,9 +465,105 @@ async function renderMenu(app){
   }catch(e){}
 }
 
+/* ---------- print (AEG paper layout) ---------- */
+let printOpt={job:"",sel:null,photos:true,per:4};
+function openPrint({job="",only=null}={}){
+  printOpt={...printOpt,job:only?(sheets[only]?.jobNo||""):job,sel:only?new Set([only]):null};
+  view={name:"print"};render();scrollTo(0,0);
+}
+const cbx=on=>`<span class="cb${on?" on":""}"></span>`;
+const ink=x=>`<span class="ink">${esc(x||"")}</span>`;
+const uline=(x,cls="")=>`<span class="u${cls?" "+cls:""}"><span class="ink">${esc(x||"")}</span></span>`;
+function pipeBlock(s,k){
+  const p=(s.pipes||{})[k]||{};
+  const rows=[["SIZE",p.size?p.size+"″":"",null],["MAT",p.mat,null],["INV",p.inv,p.invNote||(elev(s.rim,p.inv)?"El "+elev(s.rim,p.inv):"")],["T/PIPE",p.tpipe,p.tpipeNote],["T/WATER",p.twater,p.twaterNote],["T/DEBRIS",p.tdebris,p.tdebrisNote]];
+  return `<div class="pb"><div class="dir">${k}</div>${rows.map(([l,v,n])=>`<span class="lb">${l}</span>${n===null?`<span class="u" style="grid-column:span 2"><span class="ink">${esc(v||"")}</span></span>`:`${uline(v)}${uline(n,"n")}`}`).join("")}</div>`;
+}
+function sheetPageHTML(s,pageNo,pageTotal){
+  const ck=(list,val)=>list.map(o=>{const l=Array.isArray(o)?o[0]:o,c=Array.isArray(o)?o[1]:"";return `<div class="ck">${cbx(val===l)}${esc(l)}${c?" "+c:""}</div>`}).join("");
+  const order=["NW","N","NE","W","*","E","SW","S","SE"];
+  return `<article class="pg"><div class="frame">
+    <div class="p-head">
+      <div class="p-co"><div class="lg"><span class="mark">AEG</span><span class="nm">ATLAS ENGINEERING<br>GROUP, LTD.</span></div>
+        <div>110 Estate Drive</div><div>Deerfield, Illinois 60015</div><div>Tel (847) 753-8020 &nbsp;Fax (847) 753-8023</div><div>www.aegroupltd.com</div></div>
+      <div class="p-fields">
+        <div class="ln"><span>Project name:</span>${uline(s.project)}</div>
+        <div class="ln"><span>Location:</span>${uline(s.location)}</div>
+        <div class="ln"><span>AEG job no.:</span>${uline(s.jobNo)}<span>Client job no.:</span>${uline(s.clientJobNo)}</div>
+        <div class="ln"><span>Field initials:</span>${uline(s.initials)}<span>Date:</span>${uline(fmtDate(s.date))}</div>
+        <div class="ln" style="justify-content:flex-end"><span>Sheet</span><span class="u" style="flex:0 0 .7in"><span class="ink">${esc(s.sheetNo)}</span></span><span>of</span><span class="u" style="flex:0 0 .7in"><span class="ink">${esc(s.sheetOf)}</span></span></div>
+      </div>
+    </div>
+    <div class="p-mid">
+      <div><h4>Structure Type:</h4>${ck(STRUCTS,s.structure)}${s.structure==="Other"&&s.structureOther?`<div class="ck" style="padding-left:15px">${ink(s.structureOther)}</div>`:""}</div>
+      <div><h4>Lid Type:</h4>${ck(LIDS,s.lid)}<div class="ck">Text on lid: ${uline(s.lidText)}</div>
+        <h4 style="margin-top:8px">Lid Shape/Size:</h4>
+        <div class="ck">${cbx(s.shape==="Round")}Round (Diameter) ${s.shape==="Round"?uline(s.shapeDims):'<span class="u"></span>'}</div>
+        <div class="ck">${cbx(s.shape==="Rectangle")}Rectangle (Dims) ${s.shape==="Rectangle"?uline(s.shapeDims):'<span class="u"></span>'}</div>
+        <div class="ck">${cbx(s.shape==="Square")}Square (Dims) ${s.shape==="Square"?uline(s.shapeDims):'<span class="u"></span>'}</div></div>
+      <div><h4>Condition:</h4>${ck(CONDS,s.condition)}<h4 style="margin-top:8px">Construction:</h4>${ck(CONSTR,s.construction)}${s.construction==="Other"&&s.constructionOther?`<div class="ck" style="padding-left:15px">${ink(s.constructionOther)}</div>`:""}</div>
+      <div class="p-side"><div>Point no:${ink(s.pointNo)}</div><div>Rim:${ink(s.rim)}</div><div>Checked by:${ink(s.checkedBy)}</div><div>Date:${ink(fmtDate(s.checkedDate))}</div><div class="na">North arrow<b>↑</b></div></div>
+    </div>
+    <div class="p-inside">${cbx(!!s.insideDim)} Structure Inside Dimension ${uline(s.insideDim)}</div>
+    <div class="p-com"><div><h4>Comments:</h4>${ink(s.comments)}</div><div class="rb">Rim to bottom of structure:${ink((s.rimToBottom||"")+(s.rimToBottomNote?" "+s.rimToBottomNote:""))}${elev(s.rim,s.rimToBottom)?`<span style="text-transform:none;font-weight:400">Bottom elev ${elev(s.rim,s.rimToBottom)}</span>`:""}</div></div>
+    <div class="p-pipes">${order.map(k=>k==="*"?`<div class="pplan">${planSVG(s,{size:180})}</div>`:pipeBlock(s,k)).join("")}</div>
+  </div><div class="p-foot"><span>AEG Job ${esc(s.jobNo||"—")} · Point ${esc(s.pointNo||"—")}${(s.photos||[]).length?` · ${s.photos.length} photo${s.photos.length===1?"":"s"} attached`:""}</span><span>Page ${pageNo} of ${pageTotal}</span></div></article>`;
+}
+function photoPagesHTML(s,per,startNo,pageTotal){
+  const ps=s.photos||[];const out=[];const pages=Math.ceil(ps.length/per);
+  for(let i=0;i<pages;i++){
+    const chunk=ps.slice(i*per,(i+1)*per);const cls=per===1?"n1":per===2?"n2":per===4?"n4":"n6";
+    out.push(`<article class="pg photos"><div class="ph-head"><b>Point ${esc(s.pointNo||"—")} · Photos</b><span>AEG Job ${esc(s.jobNo||"—")} · ${esc(s.structure||"")}${s.location?" · "+esc(s.location):""}<br>${esc(fmtDate(s.date))}${s.initials?" · "+esc(s.initials):""} · ${i+1} of ${pages}</span></div>
+      <div class="phgrid ${cls}">${chunk.map((p,j)=>{const n=i*per+j;return `<figure class="phcell" style="margin:0"><div class="im"><img data-key="${esc(p.key)}" alt="${esc(p.tag)}"${urlCache.has(p.key)?` src="${urlCache.get(p.key)}"`:""}></div><figcaption class="cp"><span style="color:#111;font-family:var(--f-body);font-size:8pt;text-align:left"><b>${n+1}. ${esc(p.tag)}</b>${p.note?" — "+esc(p.note):""}</span><span>${esc(new Date(p.takenAt).toLocaleString([],{month:"numeric",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"}))}<br>${esc(photoName(s,p,n))}</span></figcaption></figure>`}).join("")}</div>
+      <div class="p-foot"><span>AEG Job ${esc(s.jobNo||"—")} · Point ${esc(s.pointNo||"—")}</span><span>Page ${startNo+i} of ${pageTotal}</span></div></article>`);
+  }
+  return out;
+}
+function fitPages(){
+  const sc=$(".pagescroll"),pg=$(".pages");if(!sc||!pg)return;
+  const W=816,avail=sc.clientWidth;const k=Math.min(1,avail/W);
+  pg.style.transform=`scale(${k})`;pg.style.width=W+"px";
+  if(k<1){pg.style.alignItems="flex-start"}else{pg.style.alignItems="center";pg.style.transform="none";pg.style.width="100%"}
+  sc.style.height=(k<1?pg.scrollHeight*k:pg.scrollHeight)+"px";
+}
+addEventListener("resize",()=>{if(view.name==="print")fitPages()});
+function renderPrint(app){
+  const all=visibleSheets();const jobs=[...new Set(all.map(s=>s.jobNo||""))].sort();
+  const pool=all.filter(s=>!printOpt.job||s.jobNo===printOpt.job).sort((a,b)=>String(a.pointNo).localeCompare(String(b.pointNo),undefined,{numeric:true}));
+  const chosen=pool.filter(s=>!printOpt.sel||printOpt.sel.has(s.id));
+  const per=printOpt.per;
+  let total=0;for(const s of chosen)total+=1+(printOpt.photos?Math.ceil((s.photos||[]).length/per):0);
+  const nPh=chosen.reduce((a,s)=>a+(s.photos||[]).length,0);
+  let pages=[],n=1;
+  for(const s of chosen){pages.push(sheetPageHTML(s,n++,total));if(printOpt.photos&&(s.photos||[]).length){const ph=photoPagesHTML(s,per,n,total);n+=ph.length;pages.push(...ph)}}
+  app.innerHTML=`<div class="noprint"><div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← All sheets</button><h1>Print</h1></div>
+    <section class="card" style="margin-top:14px"><h2>Pages for the client <small>US Letter, one structure per page</small></h2><div class="body printctl">
+      <div class="row2"><label class="f"><span>Job</span><select id="pjob"><option value="">All jobs</option>${jobs.map(j=>`<option value="${esc(j)}"${j===printOpt.job?" selected":""}>Job ${esc(j||"(none)")}</option>`).join("")}</select></label>
+        <label class="f"><span>Photos</span><select id="pph"><option value="0"${!printOpt.photos?" selected":""}>Don't include photos</option>${[1,2,4,6].map(k=>`<option value="${k}"${printOpt.photos&&per===k?" selected":""}>${k} photo${k>1?"s":""} per page</option>`).join("")}</select></label></div>
+      <div class="gl" style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Structures (${chosen.length} of ${pool.length} selected) · <button class="iconbtn" id="pall" style="color:var(--ink);min-height:30px">All</button> <button class="iconbtn" id="pnone" style="color:var(--ink);min-height:30px">None</button></div>
+      <div class="sel">${pool.map(s=>`<label><input type="checkbox" data-ps="${esc(s.id)}"${!printOpt.sel||printOpt.sel.has(s.id)?" checked":""}>Pt ${esc(s.pointNo||"—")}${(s.photos||[]).length?` <span style="color:var(--muted)">· ${s.photos.length} photo${s.photos.length===1?"":"s"}</span>`:""}</label>`).join("")||'<span class="calc">No sheets for this job.</span>'}</div>
+      <div class="calc">${chosen.length} sheet${chosen.length===1?"":"s"} · ${nPh} photo${nPh===1?"":"s"} · ${total} page${total===1?"":"s"}</div>
+      <p style="margin:0;color:var(--muted);font-size:14px">To make a PDF for the client, pick <strong>Save as PDF</strong> (or Microsoft Print to PDF) as the printer.</p>
+    </div></section></div>
+    <div class="pagescroll"><div class="pages">${pages.join("")||'<div class="empty noprint" style="width:100%">Select at least one structure.</div>'}</div></div>`;
+  $("#back").onclick=()=>{view={name:"list"};render();scrollTo(0,0)};
+  $("#pjob").onchange=e=>{printOpt.job=e.target.value;printOpt.sel=null;renderPrint(app)};
+  $("#pph").onchange=e=>{const v=+e.target.value;printOpt.photos=v>0;if(v)printOpt.per=v;renderPrint(app)};
+  $("#pall").onclick=()=>{printOpt.sel=null;renderPrint(app)};
+  $("#pnone").onclick=()=>{printOpt.sel=new Set();renderPrint(app)};
+  app.querySelectorAll("[data-ps]").forEach(c=>c.onchange=()=>{const set=printOpt.sel?new Set(printOpt.sel):new Set(pool.map(s=>s.id));c.checked?set.add(c.dataset.ps):set.delete(c.dataset.ps);printOpt.sel=set;renderPrint(app)});
+  const imgsReady=hydrateImgs(app).then(()=>Promise.all([...app.querySelectorAll(".pages img")].map(i=>i.decode?i.decode().catch(()=>{}):null))).then(fitPages);
+  fitPages();
+  const stem=`AEG-${printOpt.job?"Job"+clean(printOpt.job):"Invert"}-Sheets-${today()}`;
+  setActions([
+    nPh?{label:"Download photos (ZIP)",cls:"ghost",fn:()=>buildZip(chosen,stem+"-photos.zip",{csv:false,backup:false})}:null,
+    chosen.length?{label:`Print ${total} page${total===1?"":"s"}`,cls:"primary",fn:async()=>{toast("Preparing pages…");await imgsReady;const t=document.title;document.title=stem;window.print();setTimeout(()=>document.title=t,1500)}}:null
+  ]);
+}
+
 /* ---------- install + updates ---------- */
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstall=e;if(view.name==="list"||view.name==="menu")render()});
-window.addEventListener("appinstalled",()=>{deferredInstall=null;toast("Installed. Open Invert Sheets from your home screen.");render()});
+window.addEventListener("appinstalled",()=>{deferredInstall=null;toast("Installed. Open AEG Invert Sheet from your home screen.");render()});
 $("#menuBtn").onclick=()=>{view={name:"menu"};render();scrollTo(0,0)};
 
 if("serviceWorker" in navigator){

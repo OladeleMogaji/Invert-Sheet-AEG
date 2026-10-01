@@ -1,6 +1,6 @@
 {
-  "name": "Invert Sheets",
-  "short_name": "Invert Sheets",
+  "name": "AEG Invert Sheet",
+  "short_name": "AEG Invert",
   "description": "Field app for structure invert sheets: inverts, lid, condition and photos. Works offline.",
   "id": "./",
   "start_url": "./",

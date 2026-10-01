@@ -1,4 +1,4 @@
-# Invert Sheets
+# AEG Invert Sheet
 
 An offline field app for structure invert sheets: structure type, lid, condition, rim-to-bottom depth, up to eight pipes (size, material, Inv, T/Pipe, T/Water, T/Debris), and tagged condition photos. It installs to the home screen on Android and iPad and works with no signal.
 
@@ -9,6 +9,9 @@ An offline field app for structure invert sheets: structure type, lid, condition
 - **iPad / iPhone (Safari):** open the link, tap **Share**, then **Add to Home Screen**.
 
 Open it once with signal after installing so it saves everything for offline use.
+
+## Printing for the client
+**Print** (from the sheet list, or the Print button on any sheet) lays each structure out like the AEG paper invert sheet on US Letter, one structure per page, followed by its photo pages (1, 2, 4 or 6 photos per page). Choose **Save as PDF** as the printer to send a PDF. **Download photos (ZIP)** on the same page gives the original photos.
 
 ## How data moves
 - Sheets and photos are stored on each device (IndexedDB). Back up daily.
