@@ -1,7 +1,7 @@
 /* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="1.2.0";
+const APP_VERSION="1.3.0";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
@@ -70,6 +70,37 @@ const hasData=p=>p&&Object.values(p).some(v=>String(v||"").trim());
 const pipeCount=s=>Object.values(s.pipes||{}).filter(hasData).length;
 function elev(rim,depth){const r=num(rim),d=num(depth);return r!==null&&d!==null?(r-d).toFixed(2):null}
 const visibleSheets=()=>Object.values(sheets).sort((a,b)=>(b.updatedAt||"").localeCompare(a.updatedAt||""));
+/* ---------- backup tracking + reminder ---------- */
+const needsBackup=s=>!s.exportedAt||(s.updatedAt||"")>s.exportedAt;
+const EST_PHOTO=900000;
+function sizeOf(list){return list.reduce((a,s)=>a+2000+(s.photos||[]).reduce((b,p)=>b+(p.bytes||EST_PHOTO),0),0)}
+function fmtSize(b){if(b<1048576)return Math.max(1,Math.round(b/1024))+" KB";const mb=b/1048576;if(mb>=1024)return (mb/1024).toFixed(1)+" GB";return (mb<10?mb.toFixed(1):Math.round(mb))+" MB"}
+function backupStats(){const list=visibleSheets().filter(needsBackup);const photos=list.reduce((a,s)=>a+(s.photos||[]).length,0);
+  const oldest=list.reduce((m,s)=>!m||(s.updatedAt||"")<m?s.updatedAt:m,"");return {list,photos,bytes:sizeOf(list),oldest}}
+function remindPrefs(){try{const v=JSON.parse(localStorage.getItem("aeg.remind")||"null");if(v&&typeof v.on==="boolean"&&/^\d\d:\d\d$/.test(v.time))return v}catch(e){}return {on:true,time:"16:00"}}
+function saveRemind(v){try{localStorage.setItem("aeg.remind",JSON.stringify(v))}catch(e){}}
+function isLate(st){const r=remindPrefs();const now=new Date();const [h,m]=r.time.split(":").map(Number);
+  const pastTime=r.on&&(now.getHours()*60+now.getMinutes())>=h*60+m;
+  const stale=st.oldest&&(Date.now()-new Date(st.oldest).getTime())>20*3600*1000;
+  return pastTime||stale}
+function fmtTime(t){const [h,m]=t.split(":").map(Number);return new Date(2000,0,1,h,m).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
+function backupCardHTML(){
+  const st=backupStats();if(!st.list.length)return "";
+  const late=isLate(st);
+  const what=`${st.list.length} sheet${st.list.length===1?"":"s"}${st.photos?` and ${st.photos} photo${st.photos===1?"":"s"}`:""} (about ${fmtSize(st.bytes)})`;
+  return `<div class="backupcard${late?" late":""}"><p><b>${late?"Back up today's work":"Not backed up yet"}</b>${what} ${st.list.length===1&&!st.photos?"is":"are"} only on this device.${late?" Send them to the office before you finish for the day.":""}</p><button class="btn ${late?"primary":""}" id="bkNew">Back up now</button></div>`;
+}
+async function backupNew(){
+  const st=backupStats();if(!st.list.length){toast("Everything is already backed up.");return}
+  const d=new Date();const stamp=`${today()}_${String(d.getHours()).padStart(2,"0")}${String(d.getMinutes()).padStart(2,"0")}`;
+  await buildZip(st.list,`AEG-backup-${stamp}.zip`);
+}
+async function markExported(list){
+  const at=new Date().toISOString();
+  for(const x of list){const sh=sheets[x.id];if(!sh)continue;
+    if((sh.updatedAt||"")<=at){sh.exportedAt=at;await dbPutSheet(sh).catch(()=>{})}}
+  if(view.name==="list"||view.name==="menu")render();
+}
 function photoName(s,p,i){return `J${clean(s.jobNo)||"none"}_Pt${clean(s.pointNo)||"none"}_${String(i+1).padStart(2,"0")}_${clean(p.tag)||"photo"}.jpg`}
 
 async function deliver(blob,filename,{share=true}={}){
@@ -107,7 +138,7 @@ async function addPhotos(sheetId,files,tag){
     const key=rid("p_");
     try{await dbPutPhoto(key,blob)}catch(e){failed++;toast("Couldn't save photo. Device storage may be full.");continue}
     urlCache.set(key,URL.createObjectURL(blob));
-    update(sheetId,{photos:[...(sheets[sheetId].photos||[]),{key,tag:tag||"Structure",note:"",takenAt:new Date().toISOString()}]},{now:true});
+    update(sheetId,{photos:[...(sheets[sheetId].photos||[]),{key,tag:tag||"Structure",note:"",takenAt:new Date().toISOString(),bytes:blob.size}]},{now:true});
     added++;refreshPhotos(sheetId);
   }
   toast(failed?`${added} saved, ${failed} couldn't be read`:`${added} photo${added===1?"":"s"} saved`);
@@ -176,7 +207,7 @@ function renderList(app){
   const q=filter.q.trim().toLowerCase();
   const list=all.filter(s=>(!filter.job||s.jobNo===filter.job)&&(!q||[s.pointNo,s.location,s.project,s.jobNo,s.initials,s.comments].join(" ").toLowerCase().includes(q)));
   const groups={};for(const s of list){const g=s.jobNo||"—";(groups[g]=groups[g]||[]).push(s)};
-  let h=installCardHTML();
+  let h=installCardHTML()+backupCardHTML();
   h+=`<div class="listhead"><h1>Structures logged</h1></div>`;
   if(all.length)h+=`<div class="tools"><input id="q" type="search" placeholder="Search point, location, initials…" value="${esc(filter.q)}" aria-label="Search sheets">
       <select id="jobf" aria-label="Filter by job"><option value="">All jobs</option>${jobs.map(j=>`<option value="${esc(j)}"${j===filter.job?" selected":""}>Job ${esc(j||"(none)")}</option>`).join("")}</select></div>`;
@@ -193,7 +224,7 @@ function renderList(app){
         h+=`<button class="row" data-open="${esc(s.id)}"><span class="pt">${esc(s.pointNo||"—")}</span>
           <span class="meta"><div>${esc(s.structure||"Structure type not set")}${code?` <span class="calc">${code}</span>`:""}</div>
           <div class="sub">${esc(fmtDate(s.date))}${s.initials?" · "+esc(s.initials):""} · ${pipeCount(s)} pipe${pipeCount(s)===1?"":"s"}${np?` · ${np} photo${np===1?"":"s"}`:""}${s.rimToBottom?" · Rim–btm "+esc(s.rimToBottom)+"′":""}</div>
-          <div style="margin-top:4px"><span class="chip ${st}">${STATUS_LABEL[st]}</span></div></span>
+          <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap"><span class="chip ${st}">${STATUS_LABEL[st]}</span>${needsBackup(s)?`<span class="chip unsynced">Not backed up</span>`:""}</div></span>
           <span class="mini" aria-hidden="true">${planSVG(s,{size:44})}</span></button>`;
       }
       h+=`</div></div>`;
@@ -205,6 +236,7 @@ function renderList(app){
   app.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{view={name:"edit",id:b.dataset.open,slot:null};render();scrollTo(0,0)});
   const ib=$("#installBtn");if(ib)ib.onclick=async()=>{deferredInstall.prompt();await deferredInstall.userChoice.catch(()=>{});deferredInstall=null;render()};
   const le=$("#loadEx");if(le)le.onclick=loadExample;
+  const bn=$("#bkNew");if(bn)bn.onclick=backupNew;
   const ie=$("#impEmpty");if(ie)ie.onchange=()=>{const f=ie.files[0];ie.value="";if(f)importZip(f)};
   setActions([all.length?{label:"Export",cls:"ghost",fn:()=>{view={name:"export"};render();scrollTo(0,0)}}:null,all.length?{label:"Print",cls:"ghost",fn:()=>openPrint({job:filter.job})}:null,{label:"New sheet",cls:"primary",fn:newSheet}]);
 }
@@ -394,7 +426,10 @@ async function buildZip(list,filename,{csv=true,backup=true}={}){
   toast("Building ZIP…",10000);
   const blob=await zip.generateAsync({type:"blob",compression:"STORE"});
   toast(miss?`${n} photos packed, ${miss} missing`:"ZIP ready");
-  await deliver(blob,filename);
+  const ok=await deliver(blob,filename);
+  if(ok&&backup&&!miss){await markExported(list);toast(`Backed up ${list.length} sheet${list.length===1?"":"s"}`)}
+  else if(ok&&backup&&miss)toast(`${miss} photo${miss===1?" was":"s were"} missing, so these sheets stay marked as not backed up.`,5000);
+  return ok;
 }
 async function importZip(file){
   if(!window.JSZip){toast("ZIP tool didn't load.");return}
@@ -428,7 +463,7 @@ function renderExport(app){
   app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← All sheets</button><h1>Export</h1></div>
    <section class="card" style="margin-top:14px"><h2>Send to the office</h2><div class="body">
    <label class="f"><span>Job</span><select id="exjob"><option value="">All jobs (${all.length} sheets)</option>${jobs.map(j=>`<option value="${esc(j)}"${j===job?" selected":""}>Job ${esc(j||"(none)")}</option>`).join("")}</select></label>
-   <div class="calc">${list.length} sheet${list.length===1?"":"s"} · ${nPhotos} photo${nPhotos===1?"":"s"}</div>
+   <div class="calc">${list.length} sheet${list.length===1?"":"s"} · ${nPhotos} photo${nPhotos===1?"":"s"} · about ${fmtSize(sizeOf(list))}</div>
    <div class="menu">
      <button class="btn primary" id="exZip">Share job package (ZIP: photos + CSV + backup)</button>
      <button class="btn" id="exCsv">Share CSV only</button>
@@ -447,13 +482,23 @@ async function renderMenu(app){
   app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← All sheets</button><h1>Backup &amp; settings</h1></div>
    ${installCardHTML()}
    <section class="card" style="margin-top:14px"><h2>Backup</h2><div class="body"><div class="menu">
-     <button class="btn primary" id="bkAll">Back up everything (${all.length} sheets, ${nPhotos} photos)</button>
+     ${(()=>{const st=backupStats();return st.list.length?`<button class="btn primary" id="bkNew2">Back up new work (${st.list.length} sheet${st.list.length===1?"":"s"}, about ${fmtSize(st.bytes)})</button>`:`<div class="calc" style="font-family:var(--f-body);font-size:14px;color:var(--ok)">Everything on this device is backed up.</div>`})()}
+     <button class="btn${backupStats().list.length?"":" primary"}" id="bkAll">Back up everything (${all.length} sheet${all.length===1?"":"s"}, ${nPhotos} photo${nPhotos===1?"":"s"}, about ${fmtSize(sizeOf(all))})</button>
      <label class="btn filebtn">Import a ZIP from another device<input type="file" id="imp" accept=".zip,application/zip"></label>
    </div><p style="margin:0;color:var(--muted);font-size:14px">Sheets and photos live only on this device until you export them. Back up at the end of each day. Importing keeps whichever copy of a sheet was edited last.</p></div></section>
+   <section class="card" style="margin-top:14px"><h2>Backup reminder</h2><div class="body">
+     <label class="ck2"><input type="checkbox" id="rmOn"${remindPrefs().on?" checked":""}> Remind me to back up after</label>
+     <label class="f" style="max-width:220px"><span>Time</span><input type="time" id="rmTime" value="${remindPrefs().time}"></label>
+     <p style="margin:0;color:var(--muted);font-size:14px">After this time, the sheet list shows a reminder until all of the day's work is backed up. It also shows if anything has gone unbacked for 20 hours.</p>
+   </div></section>
    <section class="card" style="margin-top:14px"><h2>This device</h2><div class="body"><div class="storage" id="stor" style="margin:0">Checking storage…</div>
    <div class="calc">App version ${APP_VERSION} · ${isStandalone()?"installed":"running in browser"}</div></div></section>`;
   $("#back").onclick=()=>{view={name:"list"};render()};
-  $("#bkAll").onclick=()=>buildZip(all,`invert-sheets-backup-${today()}.zip`);
+  $("#bkAll").onclick=()=>buildZip(all,`AEG-backup-all-${today()}.zip`);
+  const b2=$("#bkNew2");if(b2)b2.onclick=backupNew;
+  const ro=$("#rmOn"),rt=$("#rmTime");
+  ro.onchange=()=>{saveRemind({on:ro.checked,time:rt.value||"16:00"});toast(ro.checked?`Reminder on, after ${fmtTime(rt.value||"16:00")}`:"Reminder off")};
+  rt.onchange=()=>{if(/^\d\d:\d\d$/.test(rt.value)){saveRemind({on:ro.checked,time:rt.value});toast(`Reminder set for ${fmtTime(rt.value)}`)}};
   const imp=$("#imp");imp.onchange=()=>{const f=imp.files[0];imp.value="";if(f)importZip(f)};
   const ib=$("#installBtn");if(ib)ib.onclick=async()=>{deferredInstall.prompt();await deferredInstall.userChoice.catch(()=>{});deferredInstall=null;render()};
   setActions([]);
@@ -578,6 +623,9 @@ if("serviceWorker" in navigator){
     navigator.serviceWorker.addEventListener("controllerchange",()=>{if(!reloaded){reloaded=true;location.reload()}});
   });
 }
+
+setInterval(()=>{if(view.name==="list"&&document.visibilityState==="visible"&&!(document.activeElement&&document.activeElement.id==="q"))render()},5*60*1000);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&view.name==="list")render()});
 
 /* ---------- boot ---------- */
 (async()=>{

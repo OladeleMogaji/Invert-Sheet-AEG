@@ -265,3 +265,9 @@ body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
 }
 .logo{height:36px;width:auto;background:#fff;border-radius:4px;padding:3px 4px;display:block;flex:none}
 .p-co .plogo{height:.82in;width:auto;margin-bottom:4px}
+.backupcard{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;margin-top:14px}
+.backupcard p{margin:0;flex:1 1 220px;font-size:15px}
+.backupcard p b{font-family:var(--f-display);font-size:18px;display:block}
+.backupcard.late{background:var(--warn-soft);border-color:var(--warn)}
+.ck2{display:flex;gap:10px;align-items:center;font-weight:600;min-height:40px}
+.ck2 input{width:22px;height:22px;accent-color:var(--accent)}
