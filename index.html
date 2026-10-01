@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Invert Sheets</title>
+<meta name="description" content="Field app for structure invert sheets: inverts, lid, condition and photos. Works offline.">
+<meta name="theme-color" content="#14212B">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Invert Sheets">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/favicon-64.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="bar"><div class="bar-in">
+  <div class="brand">Invert Sheets<small>Structure field inspection</small></div>
+  <div class="sp"></div>
+  <div class="sync" id="sync" data-s="live"><i></i><span>Saved on device</span></div>
+  <button class="iconbtn" id="menuBtn" aria-label="Backup and settings">Backup</button>
+</div></header>
+<main class="wrap" id="app"></main>
+<div class="actions" id="actions" hidden><div class="actions-in" id="actionsIn"></div></div>
+<div class="toast" id="toast" hidden></div>
+<div id="lb"></div>
+<div id="upd"></div>
+<script src="vendor/jszip.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
