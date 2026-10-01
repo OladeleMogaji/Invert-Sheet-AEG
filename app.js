@@ -166,7 +166,7 @@ const isIOS=()=>/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platfor
 function installCardHTML(){
   if(isStandalone())return "";
   if(deferredInstall)return `<div class="installcard"><p><b>Install on this device</b>Adds AEG Invert Sheet to the home screen. It then opens full screen and works with no signal.</p><button class="btn primary" id="installBtn">Install app</button></div>`;
-  if(isIOS())return `<div class="installcard"><p><b>Install on this ${/iPhone|iPod/.test(navigator.userAgent)?"iPhone":"iPad"}</b>Tap the Share button <span aria-hidden="true">(square with arrow)</span> in Safari, then <strong>Add to Home Screen</strong>. Open it from the home screen icon after that.</p></div>`;
+  if(isIOS())return `<div class="installcard"><p><b>Install on this ${/iPhone|iPod/.test(navigator.userAgent)?"iPhone":"iPad"}</b>In Safari, tap <strong>•••</strong> at the bottom (or the Share icon), then <strong>Share</strong>, scroll down and tap <strong>Add to Home Screen</strong>. Keep <strong>Open as Web App</strong> on. Then open it from the AEG icon on your home screen.</p></div>`;
   return "";
 }
 
