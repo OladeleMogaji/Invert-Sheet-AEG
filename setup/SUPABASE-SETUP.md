@@ -23,6 +23,9 @@ For each person: **Authentication → Users → Add user → Create new user**
 - Password: a temporary password you give them
 - Tick **Auto Confirm User**
 
+The first time they sign in, the app asks them to choose their own password.
+They can change it later under Backup → Change password.
+
 Each person gets a profile automatically with the role **crew**.
 
 ## 5. Set names and roles
@@ -43,7 +46,8 @@ Put them in `config.js` (or send them to whoever maintains the app). Never put t
 - Sheets upload in the background whenever there's signal. The top bar shows
   "All synced", "N waiting to upload", or "Offline".
 - Remove someone: Authentication → Users → delete the user.
-- Reset a password: Authentication → Users → … → Send password recovery, or delete and re-add.
+- Forgotten password: Authentication → Users → click the person → set a new temporary password.
+  (To make the app ask them to choose a new one again: `update public.profiles set password_set = false where email = '…';`)
 
 ## Free plan limits
 - 1 GB of photo storage (roughly 300–500 structures with 2–3 photos each).

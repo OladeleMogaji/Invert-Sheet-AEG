@@ -1,7 +1,7 @@
 /* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="2.0.2";
+const APP_VERSION="2.1.0";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
@@ -186,6 +186,7 @@ function render(){
   else if(view.name==="menu")renderMenu(app);
   else if(view.name==="print")renderPrint(app);
   else if(view.name==="signin")renderSignIn(app);
+  else if(view.name==="setpw")renderSetPassword(app);
   else{view={name:"list"};renderList(app)}
 }
 function setActions(items){
@@ -662,13 +663,14 @@ async function cloudInit(){
     const {data}=await cloud.sb.auth.getSession();cloud.session=data.session;
     cloud.me=lsGet("aeg.me",null);
     cloud.sb.auth.onAuthStateChange((ev,sess)=>{cloud.session=sess;if(!sess){cloud.me=null}setCloudStatus()});
-    if(cloud.session){loadProfile();syncNow()}
+    if(cloud.session){await loadProfile();syncNow();
+      if(cloud.me&&cloud.me.password_set===false&&view.name==="list"){view={name:"setpw",first:true}}}
   }catch(e){cloud.error="Couldn't start sync: "+(e.message||e)}
   setCloudStatus();if(view.name==="list"||view.name==="menu")render();
 }
 async function loadProfile(){
   if(!cloud.session)return;
-  try{const {data,error}=await cloud.sb.from("profiles").select("id,email,full_name,role").eq("id",cloud.session.user.id).maybeSingle();
+  try{const {data,error}=await cloud.sb.from("profiles").select("*").eq("id",cloud.session.user.id).maybeSingle();
     if(!error&&data){cloud.me=data;lsSet("aeg.me",data)}
     else if(!error&&!data){cloud.me={id:cloud.session.user.id,email:cloud.session.user.email,full_name:cloud.session.user.email,role:null};cloud.error="Your account isn't set up for this app yet. Ask the admin to run the setup script."}
   }catch(e){}
@@ -768,14 +770,16 @@ function signInCardHTML(){
 function renderSignIn(app){
   app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← All sheets</button><h1>Sign in</h1></div>
    <section class="card" style="margin-top:14px;max-width:520px"><h2>AEG account</h2><form class="body" id="siForm" novalidate>
-     <label class="f"><span>Email</span><input id="siEmail" type="email" autocomplete="username" inputmode="email" required></label>
-     <label class="f"><span>Password</span><input id="siPass" type="password" autocomplete="current-password" required></label>
+     <label class="f"><span>Email</span><input id="siEmail" name="email" type="email" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" value="${esc(lsGet("aeg.lastEmail",""))}" required></label>
+     <label class="f"><span>Password</span><input id="siPass" name="password" type="password" autocomplete="current-password" required></label>
+     <p style="margin:0;color:var(--muted);font-size:14px">You stay signed in on this device until you tap Sign out.</p>
      <div class="warnline" id="siErr" hidden></div>
      <button class="btn primary" id="siBtn" type="submit">Sign in</button>
      <p style="margin:0;color:var(--muted);font-size:14px">No account yet? Ask your admin to add you. Sheets already on this device upload after you sign in.</p>
    </form></section>`;
   setActions([]);
   $("#back").onclick=()=>{view={name:"list"};render()};
+  const se=$("#siEmail");setTimeout(()=>{try{(se.value?$("#siPass"):se).focus()}catch(e){}},50);
   $("#siForm").onsubmit=async e=>{
     e.preventDefault();const err=$("#siErr"),btn=$("#siBtn");err.hidden=true;
     const email=$("#siEmail").value.trim(),password=$("#siPass").value;
@@ -785,8 +789,44 @@ function renderSignIn(app){
     try{
       const {data,error}=await cloud.sb.auth.signInWithPassword({email,password});
       if(error)throw error;cloud.session=data.session;await loadProfile();
+      lsSet("aeg.lastEmail",email);
+      if(cloud.me&&cloud.me.password_set===false){view={name:"setpw",first:true};render();scrollTo(0,0);return}
       toast(`Signed in as ${(cloud.me&&cloud.me.full_name)||email}`);view={name:"list"};render();syncNow();
     }catch(ex){err.textContent=/Invalid login/i.test(ex.message||"")?"That email and password don't match. Check them, or ask your admin to reset your password.":"Couldn't sign in: "+(ex.message||ex);err.hidden=false;btn.disabled=false;btn.textContent="Sign in"}
+  };
+}
+function renderSetPassword(app){
+  const first=!!view.first;
+  app.innerHTML=`<div class="edhead">${first?"":`<button class="iconbtn" id="back" style="color:var(--ink)">← Back</button>`}<h1>${first?"Create your password":"Change password"}</h1></div>
+   <section class="card" style="margin-top:14px;max-width:520px"><h2>${esc((cloud.me&&cloud.me.full_name)||"")}</h2><form class="body" id="pwForm" novalidate>
+     ${first?`<p style="margin:0">Welcome. Your admin gave you a temporary password. Choose your own now; you'll use it to sign in on any device.</p>`:""}
+     <input type="email" name="email" autocomplete="username" value="${esc(cloud.session?cloud.session.user.email:"")}" hidden>
+     <label class="f"><span>New password</span><input id="pw1" name="new-password" type="password" autocomplete="new-password" minlength="8" required></label>
+     <label class="f"><span>Type it again</span><input id="pw2" type="password" autocomplete="new-password" minlength="8" required></label>
+     <p style="margin:0;color:var(--muted);font-size:14px">At least 8 characters. Your phone can save it for you.</p>
+     <div class="warnline" id="pwErr" hidden></div>
+     <button class="btn primary" id="pwBtn" type="submit">${first?"Save and continue":"Save new password"}</button>
+   </form></section>`;
+  setActions([]);
+  const b=$("#back");if(b)b.onclick=()=>{view={name:"menu"};render()};
+  setTimeout(()=>{try{$("#pw1").focus()}catch(e){}},50);
+  $("#pwForm").onsubmit=async e=>{
+    e.preventDefault();const err=$("#pwErr"),btn=$("#pwBtn");err.hidden=true;
+    const a=$("#pw1").value,c=$("#pw2").value;
+    const fail=m=>{err.textContent=m;err.hidden=false};
+    if(a.length<8)return fail("Use at least 8 characters.");
+    if(a!==c)return fail("The two passwords don't match.");
+    if(navigator.onLine===false)return fail("You're offline. Try again when you have signal.");
+    btn.disabled=true;btn.textContent="Saving…";
+    try{
+      const {error}=await cloud.sb.auth.updateUser({password:a});
+      if(error)throw error;
+      await cloud.sb.rpc("mark_password_set").then(()=>{},()=>{});
+      if(cloud.me){cloud.me.password_set=true;lsSet("aeg.me",cloud.me)}
+      toast("Password saved");view={name:first?"list":"menu"};render();syncNow();
+    }catch(ex){const m=ex.message||String(ex);
+      fail(/different from the old/i.test(m)?"Choose a password that's different from your temporary one.":/weak|short|characters/i.test(m)?"That password is too weak. Make it longer or add numbers and symbols.":"Couldn't save the password: "+m);
+      btn.disabled=false;btn.textContent=first?"Save and continue":"Save new password"}
   };
 }
 function accountCardHTML(){
@@ -799,12 +839,13 @@ function accountCardHTML(){
     <div class="calc" style="font-family:var(--f-body);font-size:14px">${n?`${n} sheet${n===1?"":"s"} waiting to upload.`:"Everything on this device is uploaded."}${last?` Last sync ${new Date(last).toLocaleString([],{month:"numeric",day:"numeric",hour:"numeric",minute:"2-digit"})}.`:""}</div>
     ${cloud.error?`<div class="warnline">${esc(cloud.error)}</div>`:""}
     ${view.signOutConfirm?`<div class="confirm" style="margin:0"><p>${n?`${n} sheet${n===1?" hasn't":"s haven't"} uploaded yet. They stay on this device and upload when you sign in again.`:"Sign out of this device?"}</p><button class="btn ghost" id="acKeep">Stay signed in</button><button class="btn danger" id="acOutYes">Sign out</button></div>`:""}
-    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="acSync">Sync now</button><button class="btn ghost" id="acOut">Sign out</button></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="acSync">Sync now</button><button class="btn ghost" id="acPw">Change password</button><button class="btn ghost" id="acOut">Sign out</button></div>
   </div></section>`;
 }
 function wireAccountCard(){
   const a=$("#acSignIn");if(a)a.onclick=()=>{view={name:"signin"};render()};
   const s=$("#acSync");if(s)s.onclick=()=>syncNow({manual:true});
+  const pw=$("#acPw");if(pw)pw.onclick=()=>{view={name:"setpw",first:false};render();scrollTo(0,0)};
   const o=$("#acOut");if(o)o.onclick=()=>{view.signOutConfirm=true;render()};
   const k=$("#acKeep");if(k)k.onclick=()=>{view.signOutConfirm=false;render()};
   const y=$("#acOutYes");if(y)y.onclick=async()=>{try{await cloud.sb.auth.signOut()}catch(e){}cloud.session=null;cloud.me=null;lsSet("aeg.me",null);view={name:"menu"};render();toast("Signed out")};

@@ -108,3 +108,17 @@ create policy "Team can replace photos" on storage.objects
 drop policy if exists "Team can remove photos" on storage.objects;
 create policy "Team can remove photos" on storage.objects
   for delete to authenticated using (bucket_id = 'photos' and public.my_role() is not null);
+
+-- 4. Own passwords (added 2026-10-30) ------------------------------------
+alter table public.profiles add column if not exists password_set boolean not null default false;
+
+-- Lets a signed-in person mark that they've chosen their own password (and nothing else).
+create or replace function public.mark_password_set() returns void
+language sql security definer set search_path = public as $$
+  update public.profiles set password_set = true where id = auth.uid()
+$$;
+grant execute on function public.mark_password_set() to authenticated;
+
+-- Admins who already chose their own password don't need to be asked again.
+-- (Remove this line if you want everyone, including admins, to pick a new one.)
+update public.profiles set password_set = true where role = 'admin';
