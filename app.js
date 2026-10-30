@@ -1,7 +1,7 @@
 /* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="2.3.0";
+const APP_VERSION="2.3.1";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
@@ -1001,7 +1001,16 @@ if("serviceWorker" in navigator){
       reg.addEventListener("updatefound",()=>{const w=reg.installing;w&&w.addEventListener("statechange",()=>{if(w.state==="installed"&&navigator.serviceWorker.controller)offer(w)})});
     }).catch(()=>{});
     let reloaded=false;
-    navigator.serviceWorker.addEventListener("controllerchange",()=>{if(!reloaded){reloaded=true;location.reload()}});
+    // A new version took over: save, then reload into it. If someone is mid-typing, wait until they pause.
+    const reloadNow=()=>{if(reloaded)return;reloaded=true;flushSaves();setTimeout(()=>location.reload(),300)};
+    navigator.serviceWorker.addEventListener("controllerchange",()=>{
+      const a=document.activeElement;
+      if(a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName)){
+        const u=$("#upd");u.innerHTML=`<div class="update"><p>Updated to the latest version.</p><button class="btn" id="updBtn">Reload</button></div>`;
+        $("#updBtn").onclick=reloadNow;
+        document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")reloadNow()},{once:true});
+      }else reloadNow();
+    });
   });
 }
 

@@ -1,5 +1,5 @@
 // Offline app shell. Bump VERSION on every release so devices pick up the update.
-const VERSION = "aeg-invert-sheet-v2.3.0";
+const VERSION = "aeg-invert-sheet-v2.3.1";
 const SHELL = [
   "./", "index.html", "app.css", "app.js", "manifest.webmanifest",
   "vendor/jszip.min.js", "vendor/supabase.js", "config.js",
@@ -9,7 +9,8 @@ const SHELL = [
   "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "icons/apple-touch-icon.png", "icons/favicon-64.png", "brand/aeg-logo.png", "brand/aeg-mark.png"
 ];
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)));
+  // Take over as soon as the new files are cached, so no device stays on an old version.
+  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== VERSION).map(k => caches.delete(k)))).then(() => self.clients.claim()));
