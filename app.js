@@ -1,7 +1,7 @@
 /* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="2.2.1";
+const APP_VERSION="2.3.0";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
@@ -71,7 +71,7 @@ function fmtDate(iso){if(!iso)return "";const [y,m,d]=iso.split("-");return y&&m
 const hasData=p=>p&&Object.values(p).some(v=>String(v||"").trim());
 const pipeCount=s=>Object.values(s.pipes||{}).filter(hasData).length;
 function elev(rim,depth){const r=num(rim),d=num(depth);return r!==null&&d!==null?(r-d).toFixed(2):null}
-const visibleSheets=()=>Object.values(sheets).sort((a,b)=>(b.updatedAt||"").localeCompare(a.updatedAt||""));
+const visibleSheets=()=>Object.values(sheets).filter(x=>x.kind!=="project").sort((a,b)=>(b.updatedAt||"").localeCompare(a.updatedAt||""));
 /* ---------- backup tracking + reminder ---------- */
 const needsBackup=s=>!isSynced(s)&&(!s.exportedAt||(s.updatedAt||"")>s.exportedAt);
 const EST_PHOTO=900000;
@@ -90,6 +90,11 @@ function backupCardHTML(){
   const st=backupStats();if(!st.list.length)return "";
   const late=isLate(st);
   const what=`${st.list.length} sheet${st.list.length===1?"":"s"}${st.photos?` and ${st.photos} photo${st.photos===1?"":"s"}`:""} (about ${fmtSize(st.bytes)})`;
+  if(cloud.on&&cloud.session){ // signed in: uploading is the backup; only nag when it has been stuck a while
+    const stuck=st.oldest&&(Date.now()-new Date(st.oldest).getTime())>10*60*1000;
+    if(!stuck&&!late)return "";
+    return `<div class="backupcard${late?" late":""}"><p><b>Waiting to upload</b>${what} ${st.list.length===1&&!st.photos?"is":"are"} only on this device until there's signal.${late?" Upload before you finish for the day, or back up to a ZIP.":""}</p><button class="btn ${late?"primary":""}" id="bkSync">Upload now</button><button class="btn ghost" id="bkNew">Back up to ZIP</button></div>`;
+  }
   return `<div class="backupcard${late?" late":""}"><p><b>${late?"Back up today's work":"Not backed up yet"}</b>${what} ${st.list.length===1&&!st.photos?"is":"are"} only on this device.${late?" Send them to the office before you finish for the day.":""}</p><button class="btn ${late?"primary":""}" id="bkNew">Back up now</button></div>`;
 }
 async function backupNew(){
@@ -188,6 +193,8 @@ function render(){
   else if(view.name==="print")renderPrint(app);
   else if(view.name==="signin")renderSignIn(app);
   else if(view.name==="setpw")renderSetPassword(app);
+  else if(view.name==="project")renderProject(app);
+  else if(view.name==="newproject")renderNewProject(app);
   else{view={name:"list"};renderList(app)}
 }
 function setActions(items){
@@ -205,53 +212,151 @@ function installCardHTML(){
   return "";
 }
 
-function renderList(app){
-  const all=visibleSheets();
-  const jobs=[...new Set(all.map(s=>s.jobNo||""))].sort();
-  const q=filter.q.trim().toLowerCase();
-  const list=all.filter(s=>(!filter.job||s.jobNo===filter.job)&&(!q||[s.pointNo,s.location,s.project,s.jobNo,s.initials,s.comments].join(" ").toLowerCase().includes(q)));
-  const groups={};for(const s of list){const g=s.jobNo||"—";(groups[g]=groups[g]||[]).push(s)};
-  let h=installCardHTML()+signInCardHTML()+backupCardHTML();
-  h+=`<div class="listhead"><h1>Structures logged</h1></div>`;
-  if(all.length)h+=`<div class="tools"><input id="q" type="search" placeholder="Search point, location, initials…" value="${esc(filter.q)}" aria-label="Search sheets">
-      <select id="jobf" aria-label="Filter by job"><option value="">All jobs</option>${jobs.filter(j=>j).map(j=>`<option value="${esc(j)}"${j===filter.job?" selected":""}>Job ${esc(j||"(none)")}</option>`).join("")}</select></div>`;
-  if(!all.length){
-    h+=`<div class="empty"><b>No sheets yet</b>Tap <strong>New sheet</strong> to log your first structure. Everything saves on this device and works with no signal.<div style="margin-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn" id="loadEx">Load example sheet (Pt 2853)</button><label class="btn filebtn">Import from office ZIP<input type="file" id="impEmpty" accept=".zip,application/zip"></label></div></div>`;
-  }else if(!list.length){
-    h+=`<div class="empty"><b>No matches</b>Try a different point number or clear the job filter.</div>`;
-  }else{
-    for(const [job,arr] of Object.entries(groups)){
-      const loc=(arr.find(s=>s.location)||{}).location||"";
-      h+=`<div class="jobgroup"><h2><b>Job ${esc(job)}</b>${esc(loc)} · ${arr.length} structure${arr.length>1?"s":""}</h2><div class="rows">`;
-      for(const s of arr){
-        const st=statusOf(s);const code=(STRUCTS.find(x=>x[0]===s.structure)||[])[1];const np=(s.photos||[]).length;
-        h+=`<button class="row" data-open="${esc(s.id)}"><span class="pt">${esc(s.pointNo||"—")}</span>
-          <span class="meta"><div>${esc(s.structure||"Structure type not set")}${code?` <span class="calc">${code}</span>`:""}</div>
-          <div class="sub">${esc(fmtDate(s.date))}${s.initials?" · "+esc(s.initials):""} · ${pipeCount(s)} pipe${pipeCount(s)===1?"":"s"}${np?` · ${np} photo${np===1?"":"s"}`:""}${s.rimToBottom?" · Rim–btm "+esc(s.rimToBottom)+"′":""}${s.updatedByName?" · "+esc(s.updatedByName):""}</div>
-          <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap"><span class="chip ${st}">${STATUS_LABEL[st]}</span>${needsBackup(s)?`<span class="chip unsynced">${cloud.on&&cloud.session?"Not uploaded":"Not backed up"}</span>`:""}</div></span>
-          <span class="mini" aria-hidden="true">${planSVG(s,{size:44})}</span></button>`;
-      }
-      h+=`</div></div>`;
-    }
-  }
-  app.innerHTML=h;
-  const qi=$("#q");if(qi)qi.oninput=()=>{filter.q=qi.value;const pos=qi.selectionStart;renderList(app);const n=$("#q");n.focus();try{n.setSelectionRange(pos,pos)}catch(e){}};
-  const jf=$("#jobf");if(jf)jf.onchange=e=>{filter.job=e.target.value;renderList(app)};
+/* ---------- projects (a project = an AEG job number) ---------- */
+const isProj=x=>x&&x.kind==="project";
+const projRecords=()=>Object.values(sheets).filter(isProj);
+function projectRecord(job){return projRecords().filter(p=>(p.jobNo||"")===job).sort((a,b)=>(b.updatedAt||"").localeCompare(a.updatedAt||""))[0]||null}
+function projectList(){
+  const map=new Map();
+  const get=job=>{if(!map.has(job))map.set(job,{job,rec:null,sheets:[],last:""});return map.get(job)};
+  for(const p of projRecords()){const g=get(p.jobNo||"");if(!g.rec||(p.updatedAt||"")>(g.rec.updatedAt||""))g.rec=p;if((p.updatedAt||"")>g.last)g.last=p.updatedAt}
+  for(const x of visibleSheets()){const g=get(x.jobNo||"");g.sheets.push(x);if((x.updatedAt||"")>g.last)g.last=x.updatedAt}
+  for(const g of map.values()){const src=g.rec||g.sheets[0]||{};g.name=src.project||"";g.location=src.location||"";g.client=src.clientJobNo||"";g.initials=src.initials||""}
+  return [...map.values()].sort((a,b)=>(b.last||"").localeCompare(a.last||""));
+}
+function projectTitle(g){return g.job?`Job ${g.job}`:"No job number"}
+function sheetRowHTML(s){
+  const st=statusOf(s);const code=(STRUCTS.find(x=>x[0]===s.structure)||[])[1];const np=(s.photos||[]).length;
+  return `<button class="row" data-open="${esc(s.id)}"><span class="pt">${esc(s.pointNo||"—")}</span>
+    <span class="meta"><div>${esc(s.structure||"Structure type not set")}${code?` <span class="calc">${code}</span>`:""}</div>
+    <div class="sub">${esc(fmtDate(s.date))}${s.initials?" · "+esc(s.initials):""} · ${pipeCount(s)} pipe${pipeCount(s)===1?"":"s"}${np?` · ${np} photo${np===1?"":"s"}`:""}${s.rimToBottom?" · Rim–btm "+esc(s.rimToBottom)+"′":""}${s.updatedByName?" · "+esc(s.updatedByName):""}</div>
+    <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap"><span class="chip ${st}">${STATUS_LABEL[st]}</span>${needsBackup(s)?`<span class="chip unsynced">${cloud.on&&cloud.session?"Not uploaded":"Not backed up"}</span>`:""}</div></span>
+    <span class="mini" aria-hidden="true">${planSVG(s,{size:44})}</span></button>`;
+}
+function wireCommon(app){
   app.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{view={name:"edit",id:b.dataset.open,slot:null};render();scrollTo(0,0)});
   const ib=$("#installBtn");if(ib)ib.onclick=async()=>{deferredInstall.prompt();await deferredInstall.userChoice.catch(()=>{});deferredInstall=null;render()};
-  const le=$("#loadEx");if(le)le.onclick=loadExample;
   const bn=$("#bkNew");if(bn)bn.onclick=backupNew;
+  const bs=$("#bkSync");if(bs)bs.onclick=()=>syncNow({manual:true});
   const sib=$("#signInBtn");if(sib)sib.onclick=()=>{view={name:"signin"};render();scrollTo(0,0)};
+}
+function searchBox(ph){return `<div class="tools"><input id="q" type="search" placeholder="${ph}" value="${esc(filter.q)}" aria-label="Search"></div>`}
+function wireSearch(app,fn){const qi=$("#q");if(qi)qi.oninput=()=>{filter.q=qi.value;const pos=qi.selectionStart;fn(app);const n=$("#q");n.focus();try{n.setSelectionRange(pos,pos)}catch(e){}}}
+const matches=(x,q)=>[x.pointNo,x.location,x.project,x.jobNo,x.initials,x.comments,x.structure].join(" ").toLowerCase().includes(q);
+
+function renderList(app){
+  const all=projectList();
+  const q=filter.q.trim().toLowerCase();
+  const list=all.filter(g=>!q||[g.job,g.name,g.location,g.client].join(" ").toLowerCase().includes(q)||g.sheets.some(x=>matches(x,q)));
+  let h=installCardHTML()+signInCardHTML()+backupCardHTML();
+  h+=`<div class="listhead"><h1>Projects</h1></div>`;
+  if(all.length)h+=searchBox("Search job, project, location or point…");
+  if(!all.length){
+    h+=`<div class="empty"><b>No projects yet</b>Tap <strong>New project</strong> and enter the job number and location once. Every structure you add to it gets those details automatically.<div style="margin-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn primary" id="npEmpty">New project</button><button class="btn" id="loadEx">Load example (Pt 2853)</button><label class="btn filebtn">Import from office ZIP<input type="file" id="impEmpty" accept=".zip,application/zip"></label></div></div>`;
+  }else if(!list.length){
+    h+=`<div class="empty"><b>No matches</b>Try a different job number, place or point number.</div>`;
+  }else{
+    h+=`<div class="projgrid">`;
+    for(const g of list){
+      const c={draft:0,done:0,checked:0};for(const x of g.sheets)c[statusOf(x)]++;
+      const waiting=g.sheets.filter(needsBackup).length;
+      const hits=q&&!([g.job,g.name,g.location,g.client].join(" ").toLowerCase().includes(q))?g.sheets.filter(x=>matches(x,q)).length:0;
+      h+=`<button class="proj" data-proj="${esc(g.job)}">
+        <span class="pj">${esc(projectTitle(g))}</span>
+        <span class="pn">${esc(g.name||g.location||"No project name yet")}</span>
+        ${g.name&&g.location?`<span class="pl">${esc(g.location)}</span>`:""}
+        <span class="pc">${g.sheets.length} structure${g.sheets.length===1?"":"s"}${g.last?` · updated ${esc(new Date(g.last).toLocaleDateString([],{month:"numeric",day:"numeric",year:"numeric"}))}`:""}${hits?` · ${hits} match${hits===1?"":"es"}`:""}</span>
+        <span class="pchips">${c.draft?`<span class="chip draft">${c.draft} draft</span>`:""}${c.done?`<span class="chip done">${c.done} complete</span>`:""}${c.checked?`<span class="chip checked">${c.checked} checked</span>`:""}${waiting?`<span class="chip unsynced">${waiting} ${cloud.on&&cloud.session?"not uploaded":"not backed up"}</span>`:""}</span>
+      </button>`;
+    }
+    h+=`</div>`;
+  }
+  app.innerHTML=h;
+  wireSearch(app,renderList);wireCommon(app);
+  app.querySelectorAll("[data-proj]").forEach(b=>b.onclick=()=>openProject(b.dataset.proj));
+  const le=$("#loadEx");if(le)le.onclick=loadExample;
+  const ne=$("#npEmpty");if(ne)ne.onclick=()=>openNewProject();
   const ie=$("#impEmpty");if(ie)ie.onchange=()=>{const f=ie.files[0];ie.value="";if(f)importZip(f)};
-  setActions([all.length?{label:"Export",cls:"ghost",fn:()=>{view={name:"export"};render();scrollTo(0,0)}}:null,all.length?{label:"Print",cls:"ghost",fn:()=>openPrint({job:filter.job})}:null,{label:"New sheet",cls:"primary",fn:newSheet}]);
+  const any=visibleSheets().length;
+  setActions([any?{label:"Export",cls:"ghost",fn:()=>{filter.job="";view={name:"export"};render();scrollTo(0,0)}}:null,any?{label:"Print",cls:"ghost",fn:()=>openPrint({job:""})}:null,{label:"New project",cls:"primary",fn:()=>openNewProject()}]);
+}
+const PROJ_FIELDS=["project","location","clientJobNo"];
+function applyProjectFields(){
+  for(const rec of projRecords()){
+    for(const x of visibleSheets()){
+      if((x.jobNo||"")!==(rec.jobNo||""))continue;
+      const patch={};for(const k of PROJ_FIELDS)if((x[k]||"")!==(rec[k]||""))patch[k]=rec[k]||"";
+      if(Object.keys(patch).length)update(x.id,patch);
+    }
+  }
+}
+function openProject(job){filter.q="";filter.job=job;view={name:"project",job};render();scrollTo(0,0)}
+function openNewProject(){view={name:"newproject"};render();scrollTo(0,0)}
+
+function renderProject(app){
+  const job=view.job||"";const g=projectList().find(x=>x.job===job)||{job,rec:null,sheets:[],name:"",location:"",client:"",initials:""};
+  const q=filter.q.trim().toLowerCase();
+  const list=g.sheets.filter(x=>!q||matches(x,q)).sort((a,b)=>String(a.pointNo).localeCompare(String(b.pointNo),undefined,{numeric:true}));
+  let h=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← Projects</button><h1>${esc(projectTitle(g))}</h1><button class="iconbtn" id="editProj" style="color:var(--ink)">Edit details</button></div>`;
+  h+=`<section class="card" style="margin-top:10px"><div class="body projinfo">
+    <div><span>Project</span><b>${esc(g.name||"—")}</b></div><div><span>Location</span><b>${esc(g.location||"—")}</b></div>
+    <div><span>Client job no.</span><b>${esc(g.client||"—")}</b></div><div><span>Field initials</span><b>${esc(g.initials||"—")}</b></div>
+  </div></section>`;
+  h+=backupCardHTML();
+  h+=`<div class="listhead" style="padding-top:14px"><h2 style="font-family:var(--f-display);font-size:22px;margin:0">${g.sheets.length} structure${g.sheets.length===1?"":"s"}</h2></div>`;
+  if(g.sheets.length>6)h+=searchBox("Search point, structure, initials…");
+  if(!g.sheets.length)h+=`<div class="empty"><b>No structures yet</b>Tap <strong>New structure</strong>. The job number, project, location and initials fill in automatically.</div>`;
+  else if(!list.length)h+=`<div class="empty"><b>No matches</b>Try a different point number.</div>`;
+  else h+=`<div class="rows">${list.map(sheetRowHTML).join("")}</div>`;
+  app.innerHTML=h;
+  wireSearch(app,renderProject);wireCommon(app);
+  $("#back").onclick=()=>{filter.q="";view={name:"list"};render();scrollTo(0,0)};
+  $("#editProj").onclick=()=>{view={name:"newproject",editJob:job};render();scrollTo(0,0)};
+  setActions([g.sheets.length?{label:"Export",cls:"ghost",fn:()=>{filter.job=job;view={name:"export"};render();scrollTo(0,0)}}:null,g.sheets.length?{label:"Print",cls:"ghost",fn:()=>openPrint({job})}:null,{label:"New structure",cls:"primary",fn:()=>newSheet(job)}]);
 }
 
-function newSheet(){
-  const all=visibleSheets();
-  const base=(filter.job&&all.find(s=>s.jobNo===filter.job))||all[0];
+function renderNewProject(app){
+  const editing=view.editJob!==undefined;const job=editing?view.editJob:"";
+  const g=editing?(projectList().find(x=>x.job===job)||{}):{};
+  const last=projectList().find(x=>x.initials)||{};
+  const v=k=>esc(editing?(g[k]||""):"");
+  app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← ${editing?esc(projectTitle({job})):"Projects"}</button><h1>${editing?"Project details":"New project"}</h1></div>
+   <section class="card" style="margin-top:14px;max-width:640px"><h2>Job${editing?" <small>Changes apply to every structure in this project</small>":""}</h2><form class="body" id="npForm" novalidate>
+     <div class="grid2"><label class="f"><span>AEG job no.</span><input id="npJob" inputmode="decimal" class="num" value="${esc(job)}" placeholder="e.g. 3083" required></label>
+       <label class="f"><span>Client job no.</span><input id="npClient" value="${v("client")}"></label></div>
+     <label class="f"><span>Project name</span><input id="npName" value="${v("name")}" placeholder="e.g. Vermont Ave under I-57"></label>
+     <label class="f"><span>Location</span><input id="npLoc" value="${v("location")}" placeholder="e.g. IL 53 + Boughton Rd"></label>
+     <label class="f"><span>Field initials</span><input id="npInit" value="${esc(editing?(g.initials||""):(last.initials||""))}" placeholder="e.g. SS+KC+OM"></label>
+     <div class="warnline" id="npErr" hidden></div>
+     <button class="btn primary" type="submit">${editing?"Save details":"Create project"}</button>
+   </form></section>`;
+  setActions([]);
+  $("#back").onclick=()=>{if(editing)openProject(job);else{view={name:"list"};render()}};
+  try{(editing?$("#npName"):$("#npJob")).focus()}catch(e){}
+  $("#npForm").onsubmit=async e=>{
+    e.preventDefault();const err=$("#npErr");err.hidden=true;
+    const nj=$("#npJob").value.trim(),d={project:$("#npName").value.trim(),location:$("#npLoc").value.trim(),clientJobNo:$("#npClient").value.trim(),initials:$("#npInit").value.trim()};
+    if(!nj){err.textContent="Enter the AEG job number.";err.hidden=false;return}
+    const exists=projectList().find(x=>x.job===nj);
+    if(!editing&&exists){toast(`Job ${nj} already exists. Opened it.`);openProject(nj);return}
+    if(editing&&nj!==job&&exists){err.textContent=`Job ${nj} already exists. Use a different number.`;err.hidden=false;return}
+    let rec=editing?projectRecord(job):null;
+    if(!rec){const now=new Date().toISOString();rec={id:rid("p_"),kind:"project",jobNo:nj,photos:[],createdAt:now,updatedAt:now};sheets[rec.id]=rec}
+    update(rec.id,Object.assign({jobNo:nj},d),{now:true});
+    if(editing){ // a new job number moves every structure; project details follow the project record
+      if(nj!==job)for(const x of visibleSheets().filter(x=>(x.jobNo||"")===job))update(x.id,{jobNo:nj},{now:true});
+      applyProjectFields();flushSaves();
+      toast("Project details saved");
+    }else toast(`Project ${nj} created`);
+    openProject(nj);
+  };
+}
+function newSheet(job){
+  if(job===undefined)job=view.name==="edit"&&sheets[view.id]?(sheets[view.id].jobNo||""):(view.name==="project"?view.job:"");
+  const g=projectList().find(x=>x.job===job);
+  const base=g?{jobNo:g.job,project:g.name,location:g.location,clientJobNo:g.client,initials:g.initials,sheetOf:(g.sheets[0]||{}).sheetOf}:null;
   const s=blankSheet(base);sheets[s.id]=s;update(s.id,{},{now:true});
   view={name:"edit",id:s.id,slot:null};render();scrollTo(0,0);
-  if(base)toast(`Header copied from job ${base.jobNo||"last sheet"}`);
 }
 function loadExample(){
   const s=Object.assign(blankSheet(),{location:"IL 53 + Boughton Rd",jobNo:"3083",initials:"SS+KC+OM",date:"2026-09-28",pointNo:"2853",checkedBy:"SS CM CC",checkedDate:"2026-09-28",
@@ -323,12 +428,13 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape"&&view.photo){const b
 
 function renderEdit(app){
   const s=sheets[view.id];const st=statusOf(s);
-  let h=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← All sheets</button>
+  let h=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← ${esc(projectTitle({job:s.jobNo||""}))}</button>
     <h1>Point <span id="hdrPt">${esc(s.pointNo||"—")}</span></h1><span class="chip ${st}" id="hdrChip">${STATUS_LABEL[st]}</span><button class="iconbtn" id="printOne" style="color:var(--ink)">Print</button></div>
     <div class="saved" id="saved">Saved on device</div><div class="edgrid">`;
-  h+=`<section class="card"><h2>Job <small>Copied to each new sheet</small></h2><div class="body">
-    <div class="grid2">${field("project","Project name",s.project)}${field("location","Location",s.location,{ph:"e.g. IL 53 + Boughton Rd"})}</div>
-    <div class="grid2">${field("jobNo","AEG job no.",s.jobNo,{num:true})}${field("clientJobNo","Client job no.",s.clientJobNo)}</div>
+  h+=`<section class="card"><h2>Job <small>From the project</small></h2><div class="body">
+    <div class="projinfo"><div><span>AEG job no.</span><b>${esc(s.jobNo||"—")}</b></div><div><span>Client job no.</span><b>${esc(s.clientJobNo||"—")}</b></div>
+      <div><span>Project</span><b>${esc(s.project||"—")}</b></div><div><span>Location</span><b>${esc(s.location||"—")}</b></div></div>
+    <div><button class="btn ghost" id="editProjFromSheet" type="button">Edit project details</button></div>
     <div class="grid2">${field("initials","Field initials",s.initials,{ph:"SS+KC+OM"})}${field("date","Date",s.date,{type:"date"})}</div>
     <div class="grid2">${field("sheetNo","Sheet",s.sheetNo,{num:true})}${field("sheetOf","Of",s.sheetOf,{num:true})}</div></div></section>`;
   h+=`<section class="card"><h2>Point &amp; rim</h2><div class="body">
@@ -368,8 +474,9 @@ function renderEdit(app){
   app.innerHTML=h;
 
   wirePhotos(s);if(view.photo)renderLightbox();
-  $("#back").onclick=()=>{view={name:"list"};render();scrollTo(0,0)};
+  $("#back").onclick=()=>openProject(s.jobNo||"");
   $("#printOne").onclick=()=>{flushSaves();openPrint({only:s.id})};
+  $("#editProjFromSheet").onclick=()=>{flushSaves();view={name:"newproject",editJob:s.jobNo||""};render();scrollTo(0,0)};
   // Typing updates derived values in place; never redraw the whole screen on blur, or the next tap is lost.
   app.querySelectorAll("[data-k]").forEach(el=>{
     el.addEventListener("input",()=>{update(s.id,{[el.dataset.k]:el.value});refreshDerived(s)});
@@ -384,7 +491,7 @@ function renderEdit(app){
   const dp=$("#donePipe");if(dp)dp.onclick=()=>{view.slot=null;rerender()};
   const del=$("#del");if(del)del.onclick=()=>{view.confirmDelete=true;rerender()};
   const nd=$("#noDel");if(nd)nd.onclick=()=>{view.confirmDelete=false;rerender()};
-  const yd=$("#yesDel");if(yd)yd.onclick=async()=>{if(cloud.on)addTomb(s);for(const p of (s.photos||[]))dbDelPhoto(p.key).catch(()=>{});clearTimeout(saveTimers.get(s.id));saveTimers.delete(s.id);delete sheets[s.id];await dbDelSheet(s.id).catch(()=>{});view={name:"list"};render();toast("Sheet deleted")};
+  const yd=$("#yesDel");if(yd)yd.onclick=async()=>{if(cloud.on)addTomb(s);for(const p of (s.photos||[]))dbDelPhoto(p.key).catch(()=>{});clearTimeout(saveTimers.get(s.id));saveTimers.delete(s.id);delete sheets[s.id];await dbDelSheet(s.id).catch(()=>{});openProject(s.jobNo||"");toast("Sheet deleted")};
   setActions([{label:"Next structure",cls:"ghost",fn:newSheet},
     st==="draft"?{label:"Mark complete",cls:"primary",fn:()=>{update(s.id,{status:"done"},{now:true});rerender();toast("Marked complete")}}
                :{label:"Back to list",cls:"primary",fn:()=>{view={name:"list"};render();scrollTo(0,0)}}]);
@@ -485,7 +592,7 @@ function renderExport(app){
   const list=all.filter(s=>!job||s.jobNo===job).sort((a,b)=>String(a.pointNo).localeCompare(String(b.pointNo),undefined,{numeric:true}));
   const nPhotos=list.reduce((a,s)=>a+(s.photos||[]).length,0);
   const stem=`invert-sheets${job?"-job-"+clean(job):""}-${today()}`;
-  app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← All sheets</button><h1>Export</h1></div>
+  app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← ${filter.job?esc(projectTitle({job:filter.job})):"Projects"}</button><h1>Export</h1></div>
    <section class="card" style="margin-top:14px"><h2>Send to the office</h2><div class="body">
    <label class="f"><span>Job</span><select id="exjob"><option value="">All jobs (${all.length} sheets)</option>${jobs.filter(j=>j).map(j=>`<option value="${esc(j)}"${j===job?" selected":""}>Job ${esc(j||"(none)")}</option>`).join("")}</select></label>
    <div class="calc">${list.length} sheet${list.length===1?"":"s"} · ${nPhotos} photo${nPhotos===1?"":"s"} · about ${fmtSize(sizeOf(list))}</div>
@@ -495,7 +602,7 @@ function renderExport(app){
    </div>
    <p class="hint" style="margin:0;color:var(--muted);font-size:14px">Share opens your device's share sheet: email, Google Drive, OneDrive, Teams, Files. The office can open the same ZIP in this app (Backup → Import) to see every sheet with its photos.</p>
    </div></section>`;
-  $("#back").onclick=()=>{view={name:"list"};render()};
+  $("#back").onclick=()=>{if(filter.job)openProject(filter.job);else{view={name:"list"};render()}};
   $("#exjob").onchange=e=>{filter.job=e.target.value;renderExport(app)};
   $("#exZip").onclick=()=>buildZip(list,stem+".zip");
   $("#exCsv").onclick=()=>deliver(new Blob([toCSV(list)],{type:"text/csv"}),stem+".csv");
@@ -504,7 +611,8 @@ function renderExport(app){
 
 async function renderMenu(app){
   const all=visibleSheets();const nPhotos=all.reduce((a,s)=>a+(s.photos||[]).length,0);
-  app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← All sheets</button><h1>Menu</h1></div>
+  app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← Projects</button><h1>Menu</h1></div>
+   <div style="margin-top:14px"><button class="btn primary" id="mNewProj" style="width:100%">+ New project</button></div>
    ${installCardHTML()}
    ${accountCardHTML()}
    <section class="card" style="margin-top:14px"><h2>Backup</h2><div class="body"><div class="menu">
@@ -527,6 +635,7 @@ async function renderMenu(app){
   ro.onchange=()=>{saveRemind({on:ro.checked,time:rt.value||"16:00"});toast(ro.checked?`Reminder on, after ${fmtTime(rt.value||"16:00")}`:"Reminder off")};
   rt.onchange=()=>{if(/^\d\d:\d\d$/.test(rt.value)){saveRemind({on:ro.checked,time:rt.value});toast(`Reminder set for ${fmtTime(rt.value)}`)}};
   wireAccountCard();
+  $("#mNewProj").onclick=()=>openNewProject();
   const cu=$("#chkUpd");if(cu)cu.onclick=async()=>{
     if(!swReg){toast("Updates aren't available in this view.");return}
     cu.disabled=true;cu.textContent="Checking…";
@@ -616,7 +725,7 @@ function renderPrint(app){
   const nPh=chosen.reduce((a,s)=>a+(s.photos||[]).length,0);
   let pages=[],n=1;
   for(const s of chosen){pages.push(sheetPageHTML(s,n++,total));if(printOpt.photos&&(s.photos||[]).length){const ph=photoPagesHTML(s,per,n,total);n+=ph.length;pages.push(...ph)}}
-  app.innerHTML=`<div class="noprint"><div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← All sheets</button><h1>Print</h1></div>
+  app.innerHTML=`<div class="noprint"><div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← ${printOpt.job?esc(projectTitle({job:printOpt.job})):"Projects"}</button><h1>Print</h1></div>
     <section class="card" style="margin-top:14px"><h2>Pages for the client <small>US Letter, one structure per page</small></h2><div class="body printctl">
       <div class="row2"><label class="f"><span>Job</span><select id="pjob"><option value="">All jobs</option>${jobs.filter(j=>j).map(j=>`<option value="${esc(j)}"${j===printOpt.job?" selected":""}>Job ${esc(j||"(none)")}</option>`).join("")}</select></label>
         <label class="f"><span>Photos</span><select id="pph"><option value="0"${!printOpt.photos?" selected":""}>Don't include photos</option>${[1,2,4,6].map(k=>`<option value="${k}"${printOpt.photos&&per===k?" selected":""}>${k} photo${k>1?"s":""} per page</option>`).join("")}</select></label></div>
@@ -626,7 +735,7 @@ function renderPrint(app){
       <p style="margin:0;color:var(--muted);font-size:14px">To make a PDF for the client, pick <strong>Save as PDF</strong> (or Microsoft Print to PDF) as the printer.</p>
     </div></section></div>
     <div class="pagescroll"><div class="pages">${pages.join("")||'<div class="empty noprint" style="width:100%">Select at least one structure.</div>'}</div></div>`;
-  $("#back").onclick=()=>{view={name:"list"};render();scrollTo(0,0)};
+  $("#back").onclick=()=>{if(printOpt.job)openProject(printOpt.job);else{view={name:"list"};render();scrollTo(0,0)}};
   $("#pjob").onchange=e=>{printOpt.job=e.target.value;printOpt.sel=null;renderPrint(app)};
   $("#pph").onchange=e=>{const v=+e.target.value;printOpt.photos=v>0;if(v)printOpt.per=v;renderPrint(app)};
   $("#pall").onclick=()=>{printOpt.sel=null;renderPrint(app)};
@@ -763,6 +872,7 @@ async function syncNow({manual=false}={}){
       if(data.length<500)break;page++;
     }
     lsSet("aeg.lastPull",maxSeen);
+    if(pulled)applyProjectFields();
     cloud.lastSync=new Date().toISOString();lsSet("aeg.lastSync",cloud.lastSync);
     if(manual)toast(pushed||pulled?`Synced: ${pushed} uploaded, ${pulled} received`:"Everything is up to date");
   }catch(e){
@@ -786,7 +896,7 @@ function signInCardHTML(){
   return `<div class="installcard"><p><b>Sign in to share sheets with the office</b>Your sheets save on this device. Sign in with the account your admin gave you and they upload automatically.</p><button class="btn primary" id="signInBtn">Sign in</button></div>`;
 }
 function renderSignIn(app){
-  app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← All sheets</button><h1>Sign in</h1></div>
+  app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← Projects</button><h1>Sign in</h1></div>
    <section class="card" style="margin-top:14px;max-width:520px"><h2>AEG account</h2><form class="body" id="siForm" novalidate>
      <label class="f"><span>Email</span><input id="siEmail" name="email" type="email" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" value="${esc(lsGet("aeg.lastEmail",""))}" required></label>
      <label class="f"><span>Password</span><input id="siPass" name="password" type="password" autocomplete="current-password" required></label>
@@ -797,7 +907,7 @@ function renderSignIn(app){
    </form></section>`;
   setActions([]);
   $("#back").onclick=()=>{view={name:"list"};render()};
-  const se=$("#siEmail");setTimeout(()=>{try{(se.value?$("#siPass"):se).focus()}catch(e){}},50);
+  const se=$("#siEmail");try{(se.value?$("#siPass"):se).focus()}catch(e){}
   $("#siForm").onsubmit=async e=>{
     e.preventDefault();const err=$("#siErr"),btn=$("#siBtn");err.hidden=true;
     const email=$("#siEmail").value.trim(),password=$("#siPass").value;
@@ -827,7 +937,7 @@ function renderSetPassword(app){
    </form></section>`;
   setActions([]);
   const b=$("#back");if(b)b.onclick=()=>{view={name:"menu"};render()};
-  setTimeout(()=>{try{$("#pw1").focus()}catch(e){}},50);
+  try{$("#pw1").focus()}catch(e){}
   $("#pwForm").onsubmit=async e=>{
     e.preventDefault();const err=$("#pwErr"),btn=$("#pwBtn");err.hidden=true;
     const a=$("#pw1").value,c=$("#pw2").value;

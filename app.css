@@ -285,3 +285,17 @@ body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
 @media (max-width:620px){.who span{display:none}.who.out span{display:inline}.sync span{display:none}}
 @media (max-width:380px){.menubtn span{display:none}}
 @media (max-width:420px){.brand{font-size:17px;line-height:1.05}.logo{height:32px}.bar-in{gap:8px}}
+
+/* projects */
+.projgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.proj{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;cursor:pointer;width:100%;min-width:0}
+.proj:hover{border-color:var(--muted)}
+.proj .pj{font-family:var(--f-display);font-weight:700;font-size:22px;line-height:1.1}
+.proj .pn{font-weight:600;font-size:16px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.proj .pl{color:var(--muted);font-size:14px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.proj .pc{color:var(--muted);font-size:13px}
+.proj .pchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.projinfo{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px}
+.projinfo div{display:grid;gap:2px;min-width:0}
+.projinfo span{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.projinfo b{font-weight:600;overflow-wrap:anywhere}
