@@ -1,7 +1,7 @@
 /* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="2.2.0";
+const APP_VERSION="2.2.1";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
@@ -38,6 +38,7 @@ let view={name:"list",id:null,slot:null};
 let filter={q:"",job:""};
 let nextTag="Structure";
 let deferredInstall=null;
+let swReg=null;
 const saveTimers=new Map();
 const urlCache=new Map();
 
@@ -517,7 +518,8 @@ async function renderMenu(app){
      <p style="margin:0;color:var(--muted);font-size:14px">After this time, the sheet list shows a reminder until all of the day's work is backed up. It also shows if anything has gone unbacked for 20 hours.</p>
    </div></section>
    <section class="card" style="margin-top:14px"><h2>This device</h2><div class="body"><div class="storage" id="stor" style="margin:0">Checking storage…</div>
-   <div class="calc">App version ${APP_VERSION} · ${isStandalone()?"installed":"running in browser"}</div></div></section>`;
+   <div class="calc">App version ${APP_VERSION} · ${isStandalone()?"installed":"running in browser"}</div>
+   <div><button class="btn ghost" id="chkUpd">Check for updates</button></div></div></section>`;
   $("#back").onclick=()=>{view={name:"list"};render()};
   $("#bkAll").onclick=()=>buildZip(all,`AEG-backup-all-${today()}.zip`);
   const b2=$("#bkNew2");if(b2)b2.onclick=backupNew;
@@ -525,6 +527,13 @@ async function renderMenu(app){
   ro.onchange=()=>{saveRemind({on:ro.checked,time:rt.value||"16:00"});toast(ro.checked?`Reminder on, after ${fmtTime(rt.value||"16:00")}`:"Reminder off")};
   rt.onchange=()=>{if(/^\d\d:\d\d$/.test(rt.value)){saveRemind({on:ro.checked,time:rt.value});toast(`Reminder set for ${fmtTime(rt.value)}`)}};
   wireAccountCard();
+  const cu=$("#chkUpd");if(cu)cu.onclick=async()=>{
+    if(!swReg){toast("Updates aren't available in this view.");return}
+    cu.disabled=true;cu.textContent="Checking…";
+    try{await swReg.update()}catch(e){}
+    setTimeout(()=>{cu.disabled=false;cu.textContent="Check for updates";
+      if(swReg.waiting||swReg.installing)toast("A new version is downloading. Click Update at the top when it appears.",5000);
+      else toast(`You have the latest version (${APP_VERSION}).`)},2500)};
   const imp=$("#imp");imp.onchange=()=>{const f=imp.files[0];imp.value="";if(f)importZip(f)};
   const ib=$("#installBtn");if(ib)ib.onclick=async()=>{deferredInstall.prompt();await deferredInstall.userChoice.catch(()=>{});deferredInstall=null;render()};
   setActions([]);
@@ -869,7 +878,13 @@ $("#who").addEventListener("click",()=>{view={name:"menu"};render();scrollTo(0,0
 
 if("serviceWorker" in navigator){
   addEventListener("load",()=>{
-    navigator.serviceWorker.register("sw.js").then(reg=>{
+    navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(reg=>{
+      swReg=reg;
+      // Installed apps (Windows especially) stay open for days: look for a new version regularly, not only at launch.
+      const check=()=>{if(navigator.onLine!==false)reg.update().catch(()=>{})};
+      setInterval(check,15*60*1000);
+      document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")check()});
+      addEventListener("focus",check);addEventListener("online",check);
       const offer=w=>{const u=$("#upd");u.innerHTML=`<div class="update"><p>A new version is ready.</p><button class="btn" id="updBtn">Update</button></div>`;
         $("#updBtn").onclick=()=>{flushSaves();w.postMessage("skipWaiting")}};
       if(reg.waiting&&navigator.serviceWorker.controller)offer(reg.waiting);
