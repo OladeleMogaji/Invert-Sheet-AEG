@@ -1,7 +1,7 @@
 /* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="1.3.0";
+const APP_VERSION="1.3.1";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
@@ -319,7 +319,7 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape"&&view.photo){const b
 function renderEdit(app){
   const s=sheets[view.id];const st=statusOf(s);
   let h=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← All sheets</button>
-    <h1>Point <span>${esc(s.pointNo||"—")}</span></h1><span class="chip ${st}">${STATUS_LABEL[st]}</span><button class="iconbtn" id="printOne" style="color:var(--ink)">Print</button></div>
+    <h1>Point <span id="hdrPt">${esc(s.pointNo||"—")}</span></h1><span class="chip ${st}" id="hdrChip">${STATUS_LABEL[st]}</span><button class="iconbtn" id="printOne" style="color:var(--ink)">Print</button></div>
     <div class="saved" id="saved">Saved on device</div><div class="edgrid">`;
   h+=`<section class="card"><h2>Job <small>Copied to each new sheet</small></h2><div class="body">
     <div class="grid2">${field("project","Project name",s.project)}${field("location","Location",s.location,{ph:"e.g. IL 53 + Boughton Rd"})}</div>
@@ -329,7 +329,7 @@ function renderEdit(app){
   h+=`<section class="card"><h2>Point &amp; rim</h2><div class="body">
     <div class="grid2">${field("pointNo","Point no.",s.pointNo,{num:true})}${field("rim","Rim elevation",s.rim,{num:true,ph:"optional, ft",hint:"Enter to get invert elevations"})}</div>
     <div class="grid2">${field("rimToBottom","Rim to bottom of structure (ft)",s.rimToBottom,{num:true})}${field("rimToBottomNote","Bottom note",s.rimToBottomNote,{ph:"e.g. top of debris"})}</div>
-    ${elev(s.rim,s.rimToBottom)?`<div class="calc">Bottom elev ${elev(s.rim,s.rimToBottom)}</div>`:""}</div></section>`;
+    <div class="calc" id="bottomElev">${elev(s.rim,s.rimToBottom)?`Bottom elev ${elev(s.rim,s.rimToBottom)}`:""}</div></div></section>`;
   h+=`<section class="card"><h2>Structure type <small>with code</small></h2><div class="body">${radios("structure",STRUCTS,s.structure)}
     ${s.structure==="Other"?field("structureOther","Describe",s.structureOther):""}${field("insideDim","Structure inside dimension",s.insideDim,{ph:"e.g. 4′ dia"})}</div></section>`;
   h+=`<section class="card"><h2>Lid</h2><div class="body"><div class="group"><div class="gl">Lid type</div>${radios("lid",LIDS,s.lid)}</div>
@@ -342,20 +342,16 @@ function renderEdit(app){
 
   const sel=view.slot;const p=sel?((s.pipes||{})[sel]||{}):null;
   h+=`<section class="card full"><h2>Pipes <small>Depths in feet below rim</small></h2><div class="body"><div class="plan">
-    <div>${planSVG(s,{interactive:true,sel})}<div class="pipelist">${SLOTS.filter(([k])=>hasData((s.pipes||{})[k])).map(([k])=>{const x=s.pipes[k];return `<button data-slot="${k}">${k} · ${esc(x.size||"?")}″ ${esc(x.mat||"")} @ ${esc(x.inv||"?")}</button>`}).join("")}</div></div><div class="pipeform">`;
+    <div id="planBox">${planBoxHTML(s,sel)}</div><div class="pipeform">`;
   if(!sel)h+=`<h3>Tap a direction</h3><p class="calc" style="margin:0;font-family:var(--f-body);font-size:14px">The ring matches the circle on the paper sheet, north up. Tap NE, S, W and so on to enter that pipe's size, material, invert and depths.</p>`;
   else{
-    const inv=num(p.inv),tp=num(p.tpipe),sz=num(p.size),rb=num(s.rimToBottom);const warns=[];
-    if(inv!==null&&tp!==null&&tp>=inv)warns.push("T/Pipe should be less than Inv (both measured down from rim).");
-    if(inv!==null&&rb!==null&&inv>rb+0.05)warns.push(`Invert ${inv} is deeper than rim-to-bottom ${rb}.`);
-    if(inv!==null&&tp!==null&&sz!==null&&tp<inv){const od=(inv-tp)*12;if(Math.abs(od-sz)>6)warns.push(`Inv − T/Pipe = ${od.toFixed(1)}″, far from the ${sz}″ size. Check readings.`)}
     h+=`<h3>${sel} pipe <small>${SLOTS.find(x=>x[0]===sel)[1]}° from north</small></h3><div class="body">
       <div class="grid2"><label class="f"><span>Size (in)</span><input id="p_size" data-p="size" inputmode="decimal" class="num" value="${esc(p.size||"")}" placeholder="12"></label>
       <label class="f"><span>Material</span><select id="p_mat" data-p="mat"><option value=""></option>${MATS.map(m=>`<option${m===p.mat?" selected":""}>${m}</option>`).join("")}</select></label></div>
       ${["inv","tpipe","twater","tdebris"].map(k=>{const lab={inv:"Inv",tpipe:"T/Pipe",twater:"T/Water",tdebris:"T/Debris"}[k];const e=elev(s.rim,p[k]);
-        return `<div class="grid2"><label class="f"><span>${lab} (ft)</span><input id="p_${k}" data-p="${k}" inputmode="decimal" class="num" value="${esc(p[k]||"")}">${e?`<span class="calc">Elev ${e}</span>`:""}</label>
+        return `<div class="grid2"><label class="f"><span>${lab} (ft)</span><input id="p_${k}" data-p="${k}" inputmode="decimal" class="num" value="${esc(p[k]||"")}"><span class="calc" data-elev="${k}">${e?`Elev ${e}`:""}</span></label>
         <label class="f"><span>${lab} note</span><input id="p_${k}Note" data-p="${k}Note" value="${esc(p[k+"Note"]||"")}" placeholder="${k==="inv"?"e.g. debris":""}"></label></div>`}).join("")}
-      ${warns.map(w=>`<div class="warnline">${esc(w)}</div>`).join("")}
+      <div id="pipeWarn" style="display:grid;gap:8px">${warnsHTML(s,sel)}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost" id="clearPipe">Clear ${sel} pipe</button><button class="btn ghost" id="donePipe">Done</button></div></div>`;
   }
   h+=`</div></div></div></section>`;
@@ -369,20 +365,16 @@ function renderEdit(app){
   wirePhotos(s);if(view.photo)renderLightbox();
   $("#back").onclick=()=>{view={name:"list"};render();scrollTo(0,0)};
   $("#printOne").onclick=()=>{flushSaves();openPrint({only:s.id})};
+  // Typing updates derived values in place; never redraw the whole screen on blur, or the next tap is lost.
   app.querySelectorAll("[data-k]").forEach(el=>{
-    el.addEventListener("input",()=>update(s.id,{[el.dataset.k]:el.value}));
-    el.addEventListener("change",()=>{if(["pointNo","rim","rimToBottom","checkedBy"].includes(el.dataset.k))rerender()});
+    el.addEventListener("input",()=>{update(s.id,{[el.dataset.k]:el.value});refreshDerived(s)});
   });
   app.querySelectorAll("input[type=radio]").forEach(el=>el.addEventListener("change",()=>{update(s.id,{[el.name]:el.value});rerender()}));
   app.querySelectorAll("[data-p]").forEach(el=>{
     const ev=el.tagName==="SELECT"?"change":"input";
-    el.addEventListener(ev,()=>{const pipes={...(s.pipes||{})};pipes[sel]={...(pipes[sel]||{}),[el.dataset.p]:el.value};update(s.id,{pipes});if(el.tagName==="SELECT")rerender()});
-    if(el.tagName!=="SELECT")el.addEventListener("change",rerender);
+    el.addEventListener(ev,()=>{const pipes={...(s.pipes||{})};pipes[sel]={...(pipes[sel]||{}),[el.dataset.p]:el.value};update(s.id,{pipes});refreshDerived(s)});
   });
-  app.querySelectorAll("[data-slot]").forEach(el=>{
-    const go=()=>{view.slot=el.dataset.slot;rerender();const f=$("#p_size");if(f)f.focus({preventScroll:true});const pf=$(".pipeform");if(pf&&innerWidth<620)pf.scrollIntoView({behavior:"smooth",block:"start"})};
-    el.addEventListener("click",go);el.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go()}});
-  });
+  wireSlots(app);
   const cp=$("#clearPipe");if(cp)cp.onclick=()=>{const pipes={...(s.pipes||{})};delete pipes[sel];update(s.id,{pipes});view.slot=null;rerender()};
   const dp=$("#donePipe");if(dp)dp.onclick=()=>{view.slot=null;rerender()};
   const del=$("#del");if(del)del.onclick=()=>{view.confirmDelete=true;rerender()};
@@ -391,6 +383,34 @@ function renderEdit(app){
   setActions([{label:"Next structure",cls:"ghost",fn:newSheet},
     st==="draft"?{label:"Mark complete",cls:"primary",fn:()=>{update(s.id,{status:"done"},{now:true});rerender();toast("Marked complete")}}
                :{label:"Back to list",cls:"primary",fn:()=>{view={name:"list"};render();scrollTo(0,0)}}]);
+}
+function planBoxHTML(s,sel){
+  return `${planSVG(s,{interactive:true,sel})}<div class="pipelist">${SLOTS.filter(([k])=>hasData((s.pipes||{})[k])).map(([k])=>{const x=s.pipes[k];return `<button data-slot="${k}">${k} · ${esc(x.size||"?")}″ ${esc(x.mat||"")} @ ${esc(x.inv||"?")}</button>`}).join("")}</div>`;
+}
+function warnsHTML(s,sel){
+  if(!sel)return "";const p=(s.pipes||{})[sel]||{};
+  const inv=num(p.inv),tp=num(p.tpipe),sz=num(p.size),rb=num(s.rimToBottom);const warns=[];
+  if(inv!==null&&tp!==null&&tp>=inv)warns.push("T/Pipe should be less than Inv (both measured down from rim).");
+  if(inv!==null&&rb!==null&&inv>rb+0.05)warns.push(`Invert ${inv} is deeper than rim-to-bottom ${rb}.`);
+  if(inv!==null&&tp!==null&&sz!==null&&tp<inv){const od=(inv-tp)*12;if(Math.abs(od-sz)>6)warns.push(`Inv − T/Pipe = ${od.toFixed(1)}″, far from the ${sz}″ size. Check readings.`)}
+  return warns.map(w=>`<div class="warnline">${esc(w)}</div>`).join("");
+}
+function wireSlots(root){
+  root.querySelectorAll("[data-slot]").forEach(el=>{
+    const go=()=>{view.slot=el.dataset.slot;rerender();const f=$("#p_size");if(f)f.focus({preventScroll:true});const pf=$(".pipeform");if(pf&&innerWidth<620)pf.scrollIntoView({behavior:"smooth",block:"start"})};
+    el.addEventListener("click",go);el.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go()}});
+  });
+}
+function refreshDerived(s){
+  if(view.name!=="edit"||view.id!==s.id)return;
+  const st=statusOf(s);
+  const hp=$("#hdrPt");if(hp)hp.textContent=s.pointNo||"—";
+  const hc=$("#hdrChip");if(hc){hc.className="chip "+st;hc.textContent=STATUS_LABEL[st]}
+  const be=$("#bottomElev");if(be){const e=elev(s.rim,s.rimToBottom);be.textContent=e?`Bottom elev ${e}`:""}
+  const sel=view.slot;const p=sel?((s.pipes||{})[sel]||{}):{};
+  document.querySelectorAll("[data-elev]").forEach(el=>{const e=elev(s.rim,p[el.dataset.elev]);el.textContent=e?`Elev ${e}`:""});
+  const pw=$("#pipeWarn");if(pw)pw.innerHTML=warnsHTML(s,sel);
+  const pb=$("#planBox");if(pb){pb.innerHTML=planBoxHTML(s,sel);wireSlots(pb)}
 }
 function rerender(){const y=scrollY;const id=document.activeElement&&document.activeElement.id;render();scrollTo(0,y);if(id){const el=document.getElementById(id);if(el&&el.tagName!=="BUTTON"&&el.type!=="file")try{el.focus({preventScroll:true})}catch(e){}}}
 

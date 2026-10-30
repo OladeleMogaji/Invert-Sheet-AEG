@@ -253,14 +253,18 @@ body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
 .phcell .cp{padding:4px 6px;font-size:8pt;border-top:.8pt solid #999;display:flex;justify-content:space-between;gap:8px}
 .phcell .cp b{font-weight:600}
 .phcell .cp span{color:#555;font-family:var(--f-mono);font-size:7pt;text-align:right}
-@page{size:letter;margin:0}
+@page{size:letter;margin:.35in}
 @media print{
   html,body{background:#fff!important}
   .bar,.actions,.noprint,#toast,#upd,#lb,.installcard{display:none!important}
   .wrap{padding:0!important;max-width:none!important;margin:0!important}
   .pagescroll{overflow:visible!important;height:auto!important}
   .pages{transform:none!important;gap:0!important;margin:0!important;display:block!important}
-  .pg{box-shadow:none!important;break-after:page;page-break-after:always;margin:0!important}
+  html,body{height:auto!important;min-height:0!important}
+  .pages{width:auto!important}
+  /* fit inside the printable area with slack, so no page ever spills onto a blank sheet */
+  .pg{box-shadow:none!important;break-after:page;page-break-after:always;break-inside:avoid;page-break-inside:avoid;margin:0!important;
+      width:100%!important;height:9.95in!important;padding:0!important}
   .pg:last-child{break-after:auto;page-break-after:auto}
 }
 .logo{height:36px;width:auto;background:#fff;border-radius:4px;padding:3px 4px;display:block;flex:none}
