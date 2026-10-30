@@ -1,7 +1,7 @@
 /* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="2.0.1";
+const APP_VERSION="2.0.2";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
@@ -698,7 +698,7 @@ async function syncNow({manual=false}={}){
   cloud.syncing=true;cloud.error="";setCloudStatus();flushSaves();
   let pulled=0,pushed=0;
   try{
-    if(!cloud.me||!cloud.me.role)await loadProfile();
+    await loadProfile(); // picks up name/role changes made by the admin
     // 1. deletions
     const tomb=lsGet("aeg.tomb",[]);
     while(tomb.length){const t=tomb[0];
