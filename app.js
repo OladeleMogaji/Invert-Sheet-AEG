@@ -1,7 +1,7 @@
 /* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="2.1.0";
+const APP_VERSION="2.2.0";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
@@ -213,7 +213,7 @@ function renderList(app){
   let h=installCardHTML()+signInCardHTML()+backupCardHTML();
   h+=`<div class="listhead"><h1>Structures logged</h1></div>`;
   if(all.length)h+=`<div class="tools"><input id="q" type="search" placeholder="Search point, location, initials…" value="${esc(filter.q)}" aria-label="Search sheets">
-      <select id="jobf" aria-label="Filter by job"><option value="">All jobs</option>${jobs.map(j=>`<option value="${esc(j)}"${j===filter.job?" selected":""}>Job ${esc(j||"(none)")}</option>`).join("")}</select></div>`;
+      <select id="jobf" aria-label="Filter by job"><option value="">All jobs</option>${jobs.filter(j=>j).map(j=>`<option value="${esc(j)}"${j===filter.job?" selected":""}>Job ${esc(j||"(none)")}</option>`).join("")}</select></div>`;
   if(!all.length){
     h+=`<div class="empty"><b>No sheets yet</b>Tap <strong>New sheet</strong> to log your first structure. Everything saves on this device and works with no signal.<div style="margin-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn" id="loadEx">Load example sheet (Pt 2853)</button><label class="btn filebtn">Import from office ZIP<input type="file" id="impEmpty" accept=".zip,application/zip"></label></div></div>`;
   }else if(!list.length){
@@ -486,7 +486,7 @@ function renderExport(app){
   const stem=`invert-sheets${job?"-job-"+clean(job):""}-${today()}`;
   app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← All sheets</button><h1>Export</h1></div>
    <section class="card" style="margin-top:14px"><h2>Send to the office</h2><div class="body">
-   <label class="f"><span>Job</span><select id="exjob"><option value="">All jobs (${all.length} sheets)</option>${jobs.map(j=>`<option value="${esc(j)}"${j===job?" selected":""}>Job ${esc(j||"(none)")}</option>`).join("")}</select></label>
+   <label class="f"><span>Job</span><select id="exjob"><option value="">All jobs (${all.length} sheets)</option>${jobs.filter(j=>j).map(j=>`<option value="${esc(j)}"${j===job?" selected":""}>Job ${esc(j||"(none)")}</option>`).join("")}</select></label>
    <div class="calc">${list.length} sheet${list.length===1?"":"s"} · ${nPhotos} photo${nPhotos===1?"":"s"} · about ${fmtSize(sizeOf(list))}</div>
    <div class="menu">
      <button class="btn primary" id="exZip">Share job package (ZIP: photos + CSV + backup)</button>
@@ -503,7 +503,7 @@ function renderExport(app){
 
 async function renderMenu(app){
   const all=visibleSheets();const nPhotos=all.reduce((a,s)=>a+(s.photos||[]).length,0);
-  app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← All sheets</button><h1>Backup &amp; settings</h1></div>
+  app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← All sheets</button><h1>Menu</h1></div>
    ${installCardHTML()}
    ${accountCardHTML()}
    <section class="card" style="margin-top:14px"><h2>Backup</h2><div class="body"><div class="menu">
@@ -609,7 +609,7 @@ function renderPrint(app){
   for(const s of chosen){pages.push(sheetPageHTML(s,n++,total));if(printOpt.photos&&(s.photos||[]).length){const ph=photoPagesHTML(s,per,n,total);n+=ph.length;pages.push(...ph)}}
   app.innerHTML=`<div class="noprint"><div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← All sheets</button><h1>Print</h1></div>
     <section class="card" style="margin-top:14px"><h2>Pages for the client <small>US Letter, one structure per page</small></h2><div class="body printctl">
-      <div class="row2"><label class="f"><span>Job</span><select id="pjob"><option value="">All jobs</option>${jobs.map(j=>`<option value="${esc(j)}"${j===printOpt.job?" selected":""}>Job ${esc(j||"(none)")}</option>`).join("")}</select></label>
+      <div class="row2"><label class="f"><span>Job</span><select id="pjob"><option value="">All jobs</option>${jobs.filter(j=>j).map(j=>`<option value="${esc(j)}"${j===printOpt.job?" selected":""}>Job ${esc(j||"(none)")}</option>`).join("")}</select></label>
         <label class="f"><span>Photos</span><select id="pph"><option value="0"${!printOpt.photos?" selected":""}>Don't include photos</option>${[1,2,4,6].map(k=>`<option value="${k}"${printOpt.photos&&per===k?" selected":""}>${k} photo${k>1?"s":""} per page</option>`).join("")}</select></label></div>
       <div class="gl" style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Structures (${chosen.length} of ${pool.length} selected) · <button class="iconbtn" id="pall" style="color:var(--ink);min-height:30px">All</button> <button class="iconbtn" id="pnone" style="color:var(--ink);min-height:30px">None</button></div>
       <div class="sel">${pool.map(s=>`<label><input type="checkbox" data-ps="${esc(s.id)}"${!printOpt.sel||printOpt.sel.has(s.id)?" checked":""}>Pt ${esc(s.pointNo||"—")}${(s.photos||[]).length?` <span style="color:var(--muted)">· ${s.photos.length} photo${s.photos.length===1?"":"s"}</span>`:""}</label>`).join("")||'<span class="calc">No sheets for this job.</span>'}</div>
@@ -640,7 +640,16 @@ function lsGet(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.pa
 function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
 function stripLocal(s){const o=JSON.parse(JSON.stringify(s));delete o.syncedAt;delete o.pushAgain;delete o.exportedAt;return o}
 function pendingCount(){return Object.values(sheets).filter(s=>!isSynced(s)).length+lsGet("aeg.tomb",[]).length}
+function setWho(){
+  const w=$("#who");if(!w)return;
+  if(!cloud.on){w.hidden=true;return}
+  w.hidden=false;
+  if(cloud.session){const n=(cloud.me&&cloud.me.full_name)||cloud.session.user.email;const ini=n.split(/[\s@.]+/).filter(Boolean).slice(0,2).map(x=>x[0].toUpperCase()).join("");
+    w.innerHTML=`<b>${esc(ini)}</b><span>${esc(n)}</span>`;w.title=`Signed in as ${n}`;w.classList.remove("out")}
+  else{w.innerHTML=`<span>Sign in</span>`;w.title="Not signed in";w.classList.add("out")}
+}
 function setCloudStatus(){
+  setWho();
   const el=$("#sync");if(!el)return;const t=el.querySelector("span");
   let st="live",txt="Saved on device";
   if(cloud.on){
@@ -856,6 +865,7 @@ $("#sync").addEventListener("click",()=>{if(cloud.on){view={name:"menu"};render(
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstall=e;if(view.name==="list"||view.name==="menu")render()});
 window.addEventListener("appinstalled",()=>{deferredInstall=null;toast("Installed. Open AEG Invert Sheet from your home screen.");render()});
 $("#menuBtn").onclick=()=>{view={name:"menu"};render();scrollTo(0,0)};
+$("#who").addEventListener("click",()=>{view={name:"menu"};render();scrollTo(0,0)});
 
 if("serviceWorker" in navigator){
   addEventListener("load",()=>{
