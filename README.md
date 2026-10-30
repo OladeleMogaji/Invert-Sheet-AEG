@@ -13,6 +13,9 @@ Open it once with signal after installing so it saves everything for offline use
 ## Printing for the client
 **Print** (from the sheet list, or the Print button on any sheet) lays each structure out like the AEG paper invert sheet on US Letter, one structure per page, followed by its photo pages (1, 2, 4 or 6 photos per page). Choose **Save as PDF** as the printer to send a PDF. **Download photos (ZIP)** on the same page gives the original photos.
 
+## Shared database (optional)
+With a Supabase project connected in `config.js`, everyone signs in and sheets and photos sync automatically between all devices and the office. Setup steps: `setup/SUPABASE-SETUP.md`. With `config.js` empty, the app works on-device only, as below.
+
 ## How data moves
 - Sheets and photos are stored on each device (IndexedDB). Back up daily.
 - **Export → Share job package** creates a ZIP with photos in folders by point, a CSV (one row per pipe) and `sheets.json`.

@@ -1,7 +1,7 @@
 /* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="1.3.1";
+const APP_VERSION="2.0.0";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
@@ -53,7 +53,8 @@ const statusOf=s=>(s.checkedBy&&s.checkedBy.trim())?"checked":s.status==="done"?
 function update(id,patch,{now=false}={}){
   const s=sheets[id];if(!s)return;
   Object.assign(s,patch,{updatedAt:new Date().toISOString()});
-  setSaved("Saving…");
+  if(cloud.me){s.updatedByName=cloud.me.full_name||cloud.me.email;if(!s.createdByName)s.createdByName=s.updatedByName}
+  setSaved("Saving…");syncSoon();
   clearTimeout(saveTimers.get(id));
   const go=()=>dbPutSheet(sheets[id]).then(()=>setSaved("Saved on device")).catch(()=>{setSaved("Not saved");toast("Couldn't save. Device storage may be full.")});
   if(now)go();else saveTimers.set(id,setTimeout(go,350));
@@ -61,7 +62,7 @@ function update(id,patch,{now=false}={}){
 function flushSaves(){for(const [id,t] of saveTimers){clearTimeout(t);if(sheets[id])dbPutSheet(sheets[id]).catch(()=>{})}saveTimers.clear()}
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")flushSaves()});
 window.addEventListener("pagehide",flushSaves);
-function setSaved(t){const el=$("#saved");if(el)el.textContent=t;const sy=$("#sync span");if(sy)sy.textContent=t==="Saving…"?"Saving…":"Saved on device"}
+function setSaved(t){const el=$("#saved");if(el)el.textContent=cloud.on&&cloud.session&&t==="Saved on device"?(isSynced(sheets[view.id]||{})?"Saved and uploaded":"Saved on device · uploading when online"):t;setCloudStatus()}
 
 /* ---------- helpers ---------- */
 function toast(msg,ms=2600){const t=$("#toast");t.textContent=msg;t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,ms)}
@@ -71,7 +72,7 @@ const pipeCount=s=>Object.values(s.pipes||{}).filter(hasData).length;
 function elev(rim,depth){const r=num(rim),d=num(depth);return r!==null&&d!==null?(r-d).toFixed(2):null}
 const visibleSheets=()=>Object.values(sheets).sort((a,b)=>(b.updatedAt||"").localeCompare(a.updatedAt||""));
 /* ---------- backup tracking + reminder ---------- */
-const needsBackup=s=>!s.exportedAt||(s.updatedAt||"")>s.exportedAt;
+const needsBackup=s=>!isSynced(s)&&(!s.exportedAt||(s.updatedAt||"")>s.exportedAt);
 const EST_PHOTO=900000;
 function sizeOf(list){return list.reduce((a,s)=>a+2000+(s.photos||[]).reduce((b,p)=>b+(p.bytes||EST_PHOTO),0),0)}
 function fmtSize(b){if(b<1048576)return Math.max(1,Math.round(b/1024))+" KB";const mb=b/1048576;if(mb>=1024)return (mb/1024).toFixed(1)+" GB";return (mb<10?mb.toFixed(1):Math.round(mb))+" MB"}
@@ -145,14 +146,14 @@ async function addPhotos(sheetId,files,tag){
 }
 async function photoURL(key){
   if(urlCache.has(key))return urlCache.get(key);
-  const b=await dbGetPhoto(key).catch(()=>null);if(!b)return "";
+  const b=await getPhotoBlob(key);if(!b)return "";
   const u=URL.createObjectURL(b);urlCache.set(key,u);return u;
 }
 async function hydrateImgs(root){
   for(const img of root.querySelectorAll("img[data-key]")){
     if(img.getAttribute("src"))continue;
     const u=await photoURL(img.dataset.key);
-    if(u)img.src=u;else img.replaceWith(Object.assign(document.createElement("div"),{className:"noimg",textContent:"Photo file missing"}));
+    if(u)img.src=u;else img.replaceWith(Object.assign(document.createElement("div"),{className:"noimg",textContent:cloud.on?"Photo not uploaded yet from the crew's device":"Photo file missing"}));
   }
 }
 function refreshPhotos(id){
@@ -184,6 +185,7 @@ function render(){
   else if(view.name==="export")renderExport(app);
   else if(view.name==="menu")renderMenu(app);
   else if(view.name==="print")renderPrint(app);
+  else if(view.name==="signin")renderSignIn(app);
   else{view={name:"list"};renderList(app)}
 }
 function setActions(items){
@@ -207,7 +209,7 @@ function renderList(app){
   const q=filter.q.trim().toLowerCase();
   const list=all.filter(s=>(!filter.job||s.jobNo===filter.job)&&(!q||[s.pointNo,s.location,s.project,s.jobNo,s.initials,s.comments].join(" ").toLowerCase().includes(q)));
   const groups={};for(const s of list){const g=s.jobNo||"—";(groups[g]=groups[g]||[]).push(s)};
-  let h=installCardHTML()+backupCardHTML();
+  let h=installCardHTML()+signInCardHTML()+backupCardHTML();
   h+=`<div class="listhead"><h1>Structures logged</h1></div>`;
   if(all.length)h+=`<div class="tools"><input id="q" type="search" placeholder="Search point, location, initials…" value="${esc(filter.q)}" aria-label="Search sheets">
       <select id="jobf" aria-label="Filter by job"><option value="">All jobs</option>${jobs.map(j=>`<option value="${esc(j)}"${j===filter.job?" selected":""}>Job ${esc(j||"(none)")}</option>`).join("")}</select></div>`;
@@ -223,8 +225,8 @@ function renderList(app){
         const st=statusOf(s);const code=(STRUCTS.find(x=>x[0]===s.structure)||[])[1];const np=(s.photos||[]).length;
         h+=`<button class="row" data-open="${esc(s.id)}"><span class="pt">${esc(s.pointNo||"—")}</span>
           <span class="meta"><div>${esc(s.structure||"Structure type not set")}${code?` <span class="calc">${code}</span>`:""}</div>
-          <div class="sub">${esc(fmtDate(s.date))}${s.initials?" · "+esc(s.initials):""} · ${pipeCount(s)} pipe${pipeCount(s)===1?"":"s"}${np?` · ${np} photo${np===1?"":"s"}`:""}${s.rimToBottom?" · Rim–btm "+esc(s.rimToBottom)+"′":""}</div>
-          <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap"><span class="chip ${st}">${STATUS_LABEL[st]}</span>${needsBackup(s)?`<span class="chip unsynced">Not backed up</span>`:""}</div></span>
+          <div class="sub">${esc(fmtDate(s.date))}${s.initials?" · "+esc(s.initials):""} · ${pipeCount(s)} pipe${pipeCount(s)===1?"":"s"}${np?` · ${np} photo${np===1?"":"s"}`:""}${s.rimToBottom?" · Rim–btm "+esc(s.rimToBottom)+"′":""}${s.updatedByName?" · "+esc(s.updatedByName):""}</div>
+          <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap"><span class="chip ${st}">${STATUS_LABEL[st]}</span>${needsBackup(s)?`<span class="chip unsynced">${cloud.on&&cloud.session?"Not uploaded":"Not backed up"}</span>`:""}</div></span>
           <span class="mini" aria-hidden="true">${planSVG(s,{size:44})}</span></button>`;
       }
       h+=`</div></div>`;
@@ -237,6 +239,7 @@ function renderList(app){
   const ib=$("#installBtn");if(ib)ib.onclick=async()=>{deferredInstall.prompt();await deferredInstall.userChoice.catch(()=>{});deferredInstall=null;render()};
   const le=$("#loadEx");if(le)le.onclick=loadExample;
   const bn=$("#bkNew");if(bn)bn.onclick=backupNew;
+  const sib=$("#signInBtn");if(sib)sib.onclick=()=>{view={name:"signin"};render();scrollTo(0,0)};
   const ie=$("#impEmpty");if(ie)ie.onchange=()=>{const f=ie.files[0];ie.value="";if(f)importZip(f)};
   setActions([all.length?{label:"Export",cls:"ghost",fn:()=>{view={name:"export"};render();scrollTo(0,0)}}:null,all.length?{label:"Print",cls:"ghost",fn:()=>openPrint({job:filter.job})}:null,{label:"New sheet",cls:"primary",fn:newSheet}]);
 }
@@ -309,10 +312,10 @@ function renderLightbox(){
   const close=()=>{view.photo=null;lb.innerHTML="";document.body.style.overflow="";refreshPhotos(s.id)};
   $("#lbClose").onclick=close;
   lb.querySelector(".imgwrap").onclick=e=>{if(e.target.tagName!=="IMG")close()};
-  $("#lbDl").onclick=async()=>{const b=await dbGetPhoto(p.key).catch(()=>null);if(!b){toast("Photo file missing.");return}const cur=(sheets[s.id].photos||[]).find(x=>x.key===p.key)||p;deliver(b,photoName(sheets[s.id],cur,i))};
+  $("#lbDl").onclick=async()=>{const b=await getPhotoBlob(p.key);if(!b){toast("Photo file missing.");return}const cur=(sheets[s.id].photos||[]).find(x=>x.key===p.key)||p;deliver(b,photoName(sheets[s.id],cur,i))};
   $("#lbDel").onclick=()=>{view.photoConfirm=true;renderLightbox()};
   const k=$("#lbKeep");if(k)k.onclick=()=>{view.photoConfirm=false;renderLightbox()};
-  const y=$("#lbYes");if(y)y.onclick=()=>{update(s.id,{photos:(sheets[s.id].photos||[]).filter(x=>x.key!==p.key)},{now:true});dbDelPhoto(p.key).catch(()=>{});if(urlCache.has(p.key)){URL.revokeObjectURL(urlCache.get(p.key));urlCache.delete(p.key)}view.photoConfirm=false;close();toast("Photo deleted")};
+  const y=$("#lbYes");if(y)y.onclick=()=>{update(s.id,{photos:(sheets[s.id].photos||[]).filter(x=>x.key!==p.key)},{now:true});dbDelPhoto(p.key).catch(()=>{});cloudRemovePhotos([`${s.id}/${p.key}.jpg`]);if(urlCache.has(p.key)){URL.revokeObjectURL(urlCache.get(p.key));urlCache.delete(p.key)}view.photoConfirm=false;close();toast("Photo deleted")};
 }
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&view.photo){const b=$("#lbClose");if(b)b.click()}});
 
@@ -379,7 +382,7 @@ function renderEdit(app){
   const dp=$("#donePipe");if(dp)dp.onclick=()=>{view.slot=null;rerender()};
   const del=$("#del");if(del)del.onclick=()=>{view.confirmDelete=true;rerender()};
   const nd=$("#noDel");if(nd)nd.onclick=()=>{view.confirmDelete=false;rerender()};
-  const yd=$("#yesDel");if(yd)yd.onclick=async()=>{for(const p of (s.photos||[]))dbDelPhoto(p.key).catch(()=>{});clearTimeout(saveTimers.get(s.id));saveTimers.delete(s.id);delete sheets[s.id];await dbDelSheet(s.id).catch(()=>{});view={name:"list"};render();toast("Sheet deleted")};
+  const yd=$("#yesDel");if(yd)yd.onclick=async()=>{if(cloud.on)addTomb(s);for(const p of (s.photos||[]))dbDelPhoto(p.key).catch(()=>{});clearTimeout(saveTimers.get(s.id));saveTimers.delete(s.id);delete sheets[s.id];await dbDelSheet(s.id).catch(()=>{});view={name:"list"};render();toast("Sheet deleted")};
   setActions([{label:"Next structure",cls:"ghost",fn:newSheet},
     st==="draft"?{label:"Mark complete",cls:"primary",fn:()=>{update(s.id,{status:"done"},{now:true});rerender();toast("Marked complete")}}
                :{label:"Back to list",cls:"primary",fn:()=>{view={name:"list"};render();scrollTo(0,0)}}]);
@@ -437,7 +440,7 @@ async function buildZip(list,filename,{csv=true,backup=true}={}){
     const dir=`photos/Pt${clean(s.pointNo)||"none"}${s.structure?"_"+clean(s.structure):""}`;
     for(const [i,p] of (s.photos||[]).entries()){
       toast(`Packing photo ${n+miss+1} of ${total}…`,10000);
-      const b=await dbGetPhoto(p.key).catch(()=>null);
+      const b=await getPhotoBlob(p.key);
       if(b){const path=`${dir}/${photoName(s,p,i)}`;zip.file(path,b);paths[p.key]=path;n++}else miss++;
     }
   }
@@ -468,7 +471,7 @@ async function importZip(file){
         const path=(data.photoPaths||{})[p.key];const f=path&&zip.file(path);
         if(f){const exists=await dbGetPhoto(p.key).catch(()=>null);if(!exists){await dbPutPhoto(p.key,new Blob([await f.async("arraybuffer")],{type:"image/jpeg"}));photos++}}
       }
-      sheets[s.id]=s;await dbPutSheet(s);cur?updated++:added++;
+      delete s.syncedAt;delete s.pushAgain;sheets[s.id]=s;await dbPutSheet(s);cur?updated++:added++;
     }
     render();
     toast(`Imported: ${added} new, ${updated} updated, ${skipped} already current · ${photos} photos`,5000);
@@ -501,11 +504,12 @@ async function renderMenu(app){
   const all=visibleSheets();const nPhotos=all.reduce((a,s)=>a+(s.photos||[]).length,0);
   app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← All sheets</button><h1>Backup &amp; settings</h1></div>
    ${installCardHTML()}
+   ${accountCardHTML()}
    <section class="card" style="margin-top:14px"><h2>Backup</h2><div class="body"><div class="menu">
      ${(()=>{const st=backupStats();return st.list.length?`<button class="btn primary" id="bkNew2">Back up new work (${st.list.length} sheet${st.list.length===1?"":"s"}, about ${fmtSize(st.bytes)})</button>`:`<div class="calc" style="font-family:var(--f-body);font-size:14px;color:var(--ok)">Everything on this device is backed up.</div>`})()}
      <button class="btn${backupStats().list.length?"":" primary"}" id="bkAll">Back up everything (${all.length} sheet${all.length===1?"":"s"}, ${nPhotos} photo${nPhotos===1?"":"s"}, about ${fmtSize(sizeOf(all))})</button>
      <label class="btn filebtn">Import a ZIP from another device<input type="file" id="imp" accept=".zip,application/zip"></label>
-   </div><p style="margin:0;color:var(--muted);font-size:14px">Sheets and photos live only on this device until you export them. Back up at the end of each day. Importing keeps whichever copy of a sheet was edited last.</p></div></section>
+   </div><p style="margin:0;color:var(--muted);font-size:14px">${cloud.on&&cloud.session?"Sheets upload to the shared database automatically. A ZIP backup is an extra copy you can keep or send to a client.":"Sheets and photos live only on this device until you export them. Back up at the end of each day."} Importing keeps whichever copy of a sheet was edited last.</p></div></section>
    <section class="card" style="margin-top:14px"><h2>Backup reminder</h2><div class="body">
      <label class="ck2"><input type="checkbox" id="rmOn"${remindPrefs().on?" checked":""}> Remind me to back up after</label>
      <label class="f" style="max-width:220px"><span>Time</span><input type="time" id="rmTime" value="${remindPrefs().time}"></label>
@@ -519,6 +523,7 @@ async function renderMenu(app){
   const ro=$("#rmOn"),rt=$("#rmTime");
   ro.onchange=()=>{saveRemind({on:ro.checked,time:rt.value||"16:00"});toast(ro.checked?`Reminder on, after ${fmtTime(rt.value||"16:00")}`:"Reminder off")};
   rt.onchange=()=>{if(/^\d\d:\d\d$/.test(rt.value)){saveRemind({on:ro.checked,time:rt.value});toast(`Reminder set for ${fmtTime(rt.value)}`)}};
+  wireAccountCard();
   const imp=$("#imp");imp.onchange=()=>{const f=imp.files[0];imp.value="";if(f)importZip(f)};
   const ib=$("#installBtn");if(ib)ib.onclick=async()=>{deferredInstall.prompt();await deferredInstall.userChoice.catch(()=>{});deferredInstall=null;render()};
   setActions([]);
@@ -626,6 +631,186 @@ function renderPrint(app){
   ]);
 }
 
+/* ---------- shared database (Supabase) ---------- */
+const CFG=window.AEG_CONFIG||{};
+const cloud={on:!!(CFG.supabaseUrl&&CFG.supabaseKey&&window.supabase),sb:null,session:null,me:null,syncing:false,lastSync:null,error:"",timer:null};
+const isSynced=s=>!!(s&&s.syncedAt&&s.syncedAt===s.updatedAt&&!s.pushAgain&&!(s.photos||[]).some(p=>!p.up));
+function lsGet(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}}
+function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+function stripLocal(s){const o=JSON.parse(JSON.stringify(s));delete o.syncedAt;delete o.pushAgain;delete o.exportedAt;return o}
+function pendingCount(){return Object.values(sheets).filter(s=>!isSynced(s)).length+lsGet("aeg.tomb",[]).length}
+function setCloudStatus(){
+  const el=$("#sync");if(!el)return;const t=el.querySelector("span");
+  let st="live",txt="Saved on device";
+  if(cloud.on){
+    const n=pendingCount();
+    if(!cloud.session){st="local";txt="Not signed in"}
+    else if(cloud.syncing){st="pending";txt="Syncing…"}
+    else if(cloud.error){st="local";txt=n?`${n} waiting · sync problem`:"Sync problem"}
+    else if(navigator.onLine===false){st="pending";txt=n?`Offline · ${n} waiting`:"Offline"}
+    else if(n){st="pending";txt=`${n} waiting to upload`}
+    else{txt="All synced"}
+  }
+  el.dataset.s=st;if(t)t.textContent=txt;el.title=cloud.error||"";
+}
+function syncSoon(ms=6000){if(!cloud.on||!cloud.session)return;clearTimeout(cloud.timer);cloud.timer=setTimeout(()=>syncNow(),ms)}
+async function cloudInit(){
+  setCloudStatus();
+  if(!cloud.on)return;
+  try{
+    cloud.sb=window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,storageKey:"aeg-auth"}});
+    const {data}=await cloud.sb.auth.getSession();cloud.session=data.session;
+    cloud.me=lsGet("aeg.me",null);
+    cloud.sb.auth.onAuthStateChange((ev,sess)=>{cloud.session=sess;if(!sess){cloud.me=null}setCloudStatus()});
+    if(cloud.session){loadProfile();syncNow()}
+  }catch(e){cloud.error="Couldn't start sync: "+(e.message||e)}
+  setCloudStatus();if(view.name==="list"||view.name==="menu")render();
+}
+async function loadProfile(){
+  if(!cloud.session)return;
+  try{const {data,error}=await cloud.sb.from("profiles").select("id,email,full_name,role").eq("id",cloud.session.user.id).maybeSingle();
+    if(!error&&data){cloud.me=data;lsSet("aeg.me",data)}
+    else if(!error&&!data){cloud.me={id:cloud.session.user.id,email:cloud.session.user.email,full_name:cloud.session.user.email,role:null};cloud.error="Your account isn't set up for this app yet. Ask the admin to run the setup script."}
+  }catch(e){}
+}
+function addTomb(s){const t=lsGet("aeg.tomb",[]);t.push({id:s.id,photos:(s.photos||[]).map(p=>`${s.id}/${p.key}.jpg`)});lsSet("aeg.tomb",t);syncSoon(1000)}
+async function cloudRemovePhotos(paths){if(!cloud.on||!cloud.session||!paths.length)return;try{await cloud.sb.storage.from("photos").remove(paths)}catch(e){}}
+function sheetOfPhoto(key){for(const s of Object.values(sheets))if((s.photos||[]).some(p=>p.key===key))return s;return null}
+async function getPhotoBlob(key){
+  const local=await dbGetPhoto(key).catch(()=>null);if(local)return local;
+  if(!cloud.on||!cloud.session||navigator.onLine===false)return null;
+  const s=sheetOfPhoto(key);if(!s)return null;
+  try{const {data,error}=await cloud.sb.storage.from("photos").download(`${s.id}/${key}.jpg`);
+    if(error||!data)return null;const blob=data.type?data:new Blob([data],{type:"image/jpeg"});
+    await dbPutPhoto(key,blob).catch(()=>{});return blob}catch(e){return null}
+}
+async function saveQuiet(s){await dbPutSheet(s).catch(()=>{})}
+// Replace a sheet with the newer copy from the server, keeping the same object so an open sheet stays wired up.
+async function adoptRemote(r){
+  const loc=sheets[r.id];
+  if(loc){for(const k of Object.keys(loc))delete loc[k];Object.assign(loc,r)}else sheets[r.id]=r;
+  await saveQuiet(sheets[r.id]);
+  if(view.name==="edit"&&view.id===r.id){const a=document.activeElement;if(!(a&&a.closest&&a.closest("#app")&&/INPUT|TEXTAREA|SELECT/.test(a.tagName))){rerender()}toast(`Updated by ${r.updatedByName||"another device"}`)}
+}
+async function syncNow({manual=false}={}){
+  if(!cloud.on||!cloud.session||cloud.syncing)return;
+  if(navigator.onLine===false){setCloudStatus();if(manual)toast("You're offline. Sheets will upload when you have signal.");return}
+  cloud.syncing=true;cloud.error="";setCloudStatus();flushSaves();
+  let pulled=0,pushed=0;
+  try{
+    if(!cloud.me||!cloud.me.role)await loadProfile();
+    // 1. deletions
+    const tomb=lsGet("aeg.tomb",[]);
+    while(tomb.length){const t=tomb[0];
+      const {error}=await cloud.sb.rpc("push_sheet",{p_id:t.id,p_data:{id:t.id,deleted:true},p_updated_at:new Date().toISOString(),p_deleted:true});
+      if(error)throw error;await cloudRemovePhotos(t.photos);tomb.shift();lsSet("aeg.tomb",tomb)}
+    // 2. photos, then sheets
+    for(const s of Object.values(sheets)){
+      for(const p of (s.photos||[])){
+        if(p.up)continue;const b=await dbGetPhoto(p.key).catch(()=>null);
+        if(!b){p.up=true;s.pushAgain=true;continue} // came from another device without its file; nothing to upload from here
+        const {error}=await cloud.sb.storage.from("photos").upload(`${s.id}/${p.key}.jpg`,b,{upsert:true,contentType:"image/jpeg"});
+        if(error)throw error;p.up=true;s.pushAgain=true;await saveQuiet(s);
+      }
+      if(isSynced(s))continue;
+      if(cloud.me&&!s.createdByName){s.createdByName=cloud.me.full_name||cloud.me.email;if(!s.updatedByName)s.updatedByName=s.createdByName}
+      const {data,error}=await cloud.sb.rpc("push_sheet",{p_id:s.id,p_data:stripLocal(s),p_updated_at:s.updatedAt,p_deleted:false});
+      if(error)throw error;
+      const row=Array.isArray(data)?data[0]:data;
+      if(row&&new Date(row.updated_at).getTime()>new Date(s.updatedAt).getTime()){
+        const r=Object.assign({},row.data,{id:s.id});r.syncedAt=r.updatedAt;await adoptRemote(r);pulled++;
+      }else{s.syncedAt=s.updatedAt;s.pushAgain=false;await saveQuiet(s);pushed++}
+    }
+    // 3. pull everyone else's changes (2-minute overlap so nothing slips between commits)
+    let since=lsGet("aeg.lastPull","1970-01-01T00:00:00Z");
+    const from=new Date(new Date(since).getTime()-120000).toISOString();
+    let maxSeen=since,page=0;
+    for(;;){
+      const {data,error}=await cloud.sb.from("sheets").select("id,data,updated_at,deleted,server_updated_at").gt("server_updated_at",from).order("server_updated_at",{ascending:true}).range(page*500,page*500+499);
+      if(error)throw error;
+      for(const row of data){
+        if(row.server_updated_at>maxSeen)maxSeen=row.server_updated_at;
+        const loc=sheets[row.id];const rt=new Date(row.updated_at).getTime();
+        if(row.deleted){
+          if(loc&&rt>=new Date(loc.updatedAt).getTime()){for(const p of (loc.photos||[]))dbDelPhoto(p.key).catch(()=>{});delete sheets[row.id];await dbDelSheet(row.id).catch(()=>{});pulled++}
+          continue;
+        }
+        if(!loc||rt>new Date(loc.updatedAt).getTime()){
+          const r=Object.assign({},row.data,{id:row.id});r.syncedAt=r.updatedAt;
+          await adoptRemote(r);pulled++;
+        }else if(loc&&rt===new Date(loc.updatedAt).getTime()&&!loc.syncedAt){loc.syncedAt=loc.updatedAt;await saveQuiet(loc)}
+      }
+      if(data.length<500)break;page++;
+    }
+    lsSet("aeg.lastPull",maxSeen);
+    cloud.lastSync=new Date().toISOString();lsSet("aeg.lastSync",cloud.lastSync);
+    if(manual)toast(pushed||pulled?`Synced: ${pushed} uploaded, ${pulled} received`:"Everything is up to date");
+  }catch(e){
+    const msg=(e&&(e.message||e.error_description))||String(e);
+    cloud.error=/JWT|token|session/i.test(msg)?"Sign-in expired. Sign in again.":/not set up/i.test(msg)?"Your account isn't set up for this app yet. Ask the admin.":/Failed to fetch|NetworkError|Load failed/i.test(msg)?"Couldn't reach the server. Will retry.":"Sync problem: "+msg;
+    if(manual)toast(cloud.error,5000);
+  }finally{
+    cloud.syncing=false;setCloudStatus();
+    if(pulled&&(view.name==="list"||view.name==="menu"))render();
+    else if(pulled&&view.name==="edit"&&!sheets[view.id]){view={name:"list"};render()}
+    else if(view.name==="list"||view.name==="menu"){const a=document.activeElement;if(!(a&&a.id==="q"))render()}
+  }
+}
+addEventListener("online",()=>syncSoon(1500));
+addEventListener("offline",setCloudStatus);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")syncSoon(1500)});
+setInterval(()=>{if(document.visibilityState==="visible")syncSoon(0)},90*1000);
+
+function signInCardHTML(){
+  if(!cloud.on||cloud.session)return "";
+  return `<div class="installcard"><p><b>Sign in to share sheets with the office</b>Your sheets save on this device. Sign in with the account your admin gave you and they upload automatically.</p><button class="btn primary" id="signInBtn">Sign in</button></div>`;
+}
+function renderSignIn(app){
+  app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← All sheets</button><h1>Sign in</h1></div>
+   <section class="card" style="margin-top:14px;max-width:520px"><h2>AEG account</h2><form class="body" id="siForm" novalidate>
+     <label class="f"><span>Email</span><input id="siEmail" type="email" autocomplete="username" inputmode="email" required></label>
+     <label class="f"><span>Password</span><input id="siPass" type="password" autocomplete="current-password" required></label>
+     <div class="warnline" id="siErr" hidden></div>
+     <button class="btn primary" id="siBtn" type="submit">Sign in</button>
+     <p style="margin:0;color:var(--muted);font-size:14px">No account yet? Ask your admin to add you. Sheets already on this device upload after you sign in.</p>
+   </form></section>`;
+  setActions([]);
+  $("#back").onclick=()=>{view={name:"list"};render()};
+  $("#siForm").onsubmit=async e=>{
+    e.preventDefault();const err=$("#siErr"),btn=$("#siBtn");err.hidden=true;
+    const email=$("#siEmail").value.trim(),password=$("#siPass").value;
+    if(!email||!password){err.textContent="Enter your email and password.";err.hidden=false;return}
+    if(navigator.onLine===false){err.textContent="You're offline. Sign in once you have signal.";err.hidden=false;return}
+    btn.disabled=true;btn.textContent="Signing in…";
+    try{
+      const {data,error}=await cloud.sb.auth.signInWithPassword({email,password});
+      if(error)throw error;cloud.session=data.session;await loadProfile();
+      toast(`Signed in as ${(cloud.me&&cloud.me.full_name)||email}`);view={name:"list"};render();syncNow();
+    }catch(ex){err.textContent=/Invalid login/i.test(ex.message||"")?"That email and password don't match. Check them, or ask your admin to reset your password.":"Couldn't sign in: "+(ex.message||ex);err.hidden=false;btn.disabled=false;btn.textContent="Sign in"}
+  };
+}
+function accountCardHTML(){
+  if(!cloud.on)return "";
+  if(!cloud.session)return `<section class="card" style="margin-top:14px"><h2>Shared database</h2><div class="body"><p style="margin:0">You're not signed in, so sheets stay on this device.</p><button class="btn primary" id="acSignIn">Sign in</button></div></section>`;
+  const n=pendingCount();const last=cloud.lastSync||lsGet("aeg.lastSync",null);
+  const roleName={crew:"Field crew",supervisor:"Supervisor",admin:"Admin"}[(cloud.me||{}).role]||"No role yet";
+  return `<section class="card" style="margin-top:14px"><h2>Shared database <small>${esc(roleName)}</small></h2><div class="body">
+    <div><b>${esc((cloud.me&&cloud.me.full_name)||cloud.session.user.email)}</b><div class="calc" style="font-family:var(--f-body)">${esc(cloud.session.user.email)}</div></div>
+    <div class="calc" style="font-family:var(--f-body);font-size:14px">${n?`${n} sheet${n===1?"":"s"} waiting to upload.`:"Everything on this device is uploaded."}${last?` Last sync ${new Date(last).toLocaleString([],{month:"numeric",day:"numeric",hour:"numeric",minute:"2-digit"})}.`:""}</div>
+    ${cloud.error?`<div class="warnline">${esc(cloud.error)}</div>`:""}
+    ${view.signOutConfirm?`<div class="confirm" style="margin:0"><p>${n?`${n} sheet${n===1?" hasn't":"s haven't"} uploaded yet. They stay on this device and upload when you sign in again.`:"Sign out of this device?"}</p><button class="btn ghost" id="acKeep">Stay signed in</button><button class="btn danger" id="acOutYes">Sign out</button></div>`:""}
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="acSync">Sync now</button><button class="btn ghost" id="acOut">Sign out</button></div>
+  </div></section>`;
+}
+function wireAccountCard(){
+  const a=$("#acSignIn");if(a)a.onclick=()=>{view={name:"signin"};render()};
+  const s=$("#acSync");if(s)s.onclick=()=>syncNow({manual:true});
+  const o=$("#acOut");if(o)o.onclick=()=>{view.signOutConfirm=true;render()};
+  const k=$("#acKeep");if(k)k.onclick=()=>{view.signOutConfirm=false;render()};
+  const y=$("#acOutYes");if(y)y.onclick=async()=>{try{await cloud.sb.auth.signOut()}catch(e){}cloud.session=null;cloud.me=null;lsSet("aeg.me",null);view={name:"menu"};render();toast("Signed out")};
+}
+$("#sync").addEventListener("click",()=>{if(cloud.on){view={name:"menu"};render();scrollTo(0,0)}});
+
 /* ---------- install + updates ---------- */
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstall=e;if(view.name==="list"||view.name==="menu")render()});
 window.addEventListener("appinstalled",()=>{deferredInstall=null;toast("Installed. Open AEG Invert Sheet from your home screen.");render()});
@@ -653,5 +838,6 @@ document.addEventListener("visibilitychange",()=>{if(document.visibilityState===
   catch(e){toast("This browser blocked on-device storage. Use Chrome on Android or Safari on iPad, not a private window.",8000)}
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
   render();
+  cloudInit();
 })();
 })();

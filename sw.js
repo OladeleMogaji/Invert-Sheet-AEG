@@ -1,8 +1,8 @@
 // Offline app shell. Bump VERSION on every release so devices pick up the update.
-const VERSION = "aeg-invert-sheet-v1.3.1";
+const VERSION = "aeg-invert-sheet-v2.0.0";
 const SHELL = [
   "./", "index.html", "app.css", "app.js", "manifest.webmanifest",
-  "vendor/jszip.min.js",
+  "vendor/jszip.min.js", "vendor/supabase.js", "config.js",
   "vendor/fonts/barlow-latin-400-normal.woff2", "vendor/fonts/barlow-latin-500-normal.woff2", "vendor/fonts/barlow-latin-600-normal.woff2",
   "vendor/fonts/barlow-condensed-latin-600-normal.woff2", "vendor/fonts/barlow-condensed-latin-700-normal.woff2",
   "vendor/fonts/ibm-plex-mono-latin-400-normal.woff2", "vendor/fonts/ibm-plex-mono-latin-500-normal.woff2",
