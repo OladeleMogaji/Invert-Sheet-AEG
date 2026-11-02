@@ -122,3 +122,30 @@ grant execute on function public.mark_password_set() to authenticated;
 -- Admins who already chose their own password don't need to be asked again.
 -- (Remove this line if you want everyone, including admins, to pick a new one.)
 update public.profiles set password_set = true where role = 'admin';
+
+-- 5. QA/QC approval (added 2026-11-02) ------------------------------------
+create or replace function public.guard_sheet_qa() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare r text;
+begin
+  -- Changes made in the Supabase dashboard (no signed-in app user) are not restricted.
+  if auth.uid() is null then return new; end if;
+  r := public.my_role();
+  if r in ('supervisor', 'admin') then return new; end if;
+
+  if tg_op = 'UPDATE' then
+    -- Crew can't change or delete an approved sheet: keep it exactly as approved.
+    if old.data->'qa'->>'status' = 'approved' then
+      return old;
+    end if;
+    -- Crew can't write a QA/QC decision: keep whatever the supervisor decided.
+    new.data := jsonb_set(new.data, '{qa}', coalesce(old.data->'qa', 'null'::jsonb));
+  else
+    new.data := new.data - 'qa';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists sheets_guard_qa on public.sheets;
+create trigger sheets_guard_qa before insert or update on public.sheets
+  for each row execute function public.guard_sheet_qa();

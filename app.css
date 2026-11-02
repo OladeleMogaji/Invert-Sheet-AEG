@@ -299,3 +299,50 @@ body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
 .projinfo div{display:grid;gap:2px;min-width:0}
 .projinfo span{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .projinfo b{font-weight:600;overflow-wrap:anywhere}
+
+/* QA/QC approval */
+.lockfs{border:0;margin:0;padding:0;min-width:0}
+.lockfs:disabled .card{opacity:.92}
+.chip.submitted{color:var(--warn);background:var(--warn-soft);border-color:transparent}
+.chip.returned{color:var(--bad);border-color:var(--bad)}
+.chip.approved{color:var(--ok);background:var(--ok-soft);border-color:transparent}
+.qabanner{margin-top:10px;padding:10px 14px;border-radius:var(--r);border:1px solid var(--warn);background:var(--warn-soft);font-size:15px;display:grid;gap:4px}
+.qabanner.ok{border-color:var(--ok);background:var(--ok-soft)}
+.qabanner.bad{border-color:var(--bad);background:var(--surface)}
+.qacard{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:var(--warn-soft);border:1px solid var(--warn);border-radius:var(--r);padding:12px 14px;margin-top:14px}
+.qacard.bad{background:var(--surface);border-color:var(--bad)}
+.qacard p{margin:0;flex:1 1 220px;font-size:15px}
+.qacard p b{font-family:var(--f-display);font-size:18px;display:block}
+.qrow{display:grid;gap:4px}
+.qjob{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.qachecks{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px}
+.qachecks li{display:flex;gap:8px;align-items:center;font-size:15px}
+.qachecks li span{width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex:none}
+.qachecks li.ok span{background:var(--ok-soft);color:var(--ok)}
+.qachecks li.no span{background:var(--warn-soft);color:var(--warn)}
+.sigwrap{display:grid;gap:6px}
+.sigwrap .gl{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+#sigPad{width:100%;max-width:480px;aspect-ratio:16/5;background:#fff;border:1px dashed var(--muted);border-radius:var(--r);touch-action:none;cursor:crosshair}
+.sigtools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.qasig{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.qasig div{display:grid;gap:2px}
+.qasig span{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.sigimg{max-width:320px;width:100%;background:#fff;border:1px solid var(--line);border-radius:var(--r)}
+/* print: QA/QC strip */
+.p-qa{display:grid;grid-template-columns:1fr 2.6in;border-bottom:1.2pt solid #111;min-height:.62in}
+.p-qa>div{padding:.06in .12in}
+.p-qa h4{margin:0 0 3px;font-size:8.5pt;font-weight:600}
+.p-qa .qa-r{border-left:1.2pt solid #111;display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-start;gap:2px}
+.p-qa .qa-r img{height:.4in;max-width:100%;object-fit:contain}
+.p-qa .qa-r span{font-size:7pt;font-weight:600;text-transform:uppercase;border-top:.8pt solid #111;width:100%;padding-top:2px}
+/* make room for the QA/QC strip on one page */
+.p-head{padding:.1in .16in}
+.p-mid>div{padding:.07in .12in}
+.ck{margin:1px 0}
+.p-com{min-height:.62in}
+.p-qa{min-height:.5in}
+.p-qa .qa-r img{height:.32in}
+.p-pipes{gap:.03in .14in;padding:.07in .14in}
+.pb{row-gap:1px;font-size:7.3pt}
+.pb .u{font-size:8.2pt;min-height:1.05em}
+.pplan svg{width:1.6in;height:1.6in}
