@@ -346,3 +346,7 @@ body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
 .pb{row-gap:1px;font-size:7.3pt}
 .pb .u{font-size:8.2pt;min-height:1.05em}
 .pplan svg{width:1.6in;height:1.6in}
+
+/* required information */
+.f input.missing{border-color:var(--warn);box-shadow:0 0 0 1px var(--warn) inset}
+.edgrid > section.gated{opacity:.42;filter:grayscale(.6)}

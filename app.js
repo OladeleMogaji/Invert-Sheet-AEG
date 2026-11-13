@@ -1,7 +1,7 @@
 /* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="2.4.0";
+const APP_VERSION="2.5.0";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
@@ -303,6 +303,13 @@ function applyProjectFields(){
     }
   }
 }
+/* ---------- required information ---------- */
+// A project needs these before any structure can be added; a sheet needs these before the rest of it opens.
+const PROJECT_REQUIRED=[["job","AEG job no."],["name","Project name"],["location","Location"],["initials","Field initials"]];
+const SHEET_REQUIRED=[["date","Date"],["initials","Field initials"],["pointNo","Point no."]];
+function projectMissing(g){return PROJECT_REQUIRED.filter(([k])=>!String((g&&g[k])||"").trim()).map(([,l])=>l)}
+function sheetMissing(s){return SHEET_REQUIRED.filter(([k])=>!String(s[k]||"").trim()).map(([,l])=>l)}
+const listWords=a=>a.length<2?a.join(""):a.slice(0,-1).join(", ")+" and "+a.at(-1);
 function openProject(job){filter.q="";filter.job=job;view={name:"project",job};render();scrollTo(0,0)}
 function openNewProject(){view={name:"newproject"};render();scrollTo(0,0)}
 
@@ -315,6 +322,8 @@ function renderProject(app){
     <div><span>Project</span><b>${esc(g.name||"—")}</b></div><div><span>Location</span><b>${esc(g.location||"—")}</b></div>
     <div><span>Client job no.</span><b>${esc(g.client||"—")}</b></div><div><span>Field initials</span><b>${esc(g.initials||"—")}</b></div>
   </div></section>`;
+  const pm=projectMissing(g);
+  if(pm.length)h+=`<div class="qacard bad"><p><b>Complete the project details</b>Add the ${esc(listWords(pm.map(x=>x.toLowerCase())))} before adding structures.</p><button class="btn primary" id="fixProj">Complete details</button></div>`;
   h+=backupCardHTML();
   h+=`<div class="listhead" style="padding-top:14px"><h2 style="font-family:var(--f-display);font-size:22px;margin:0">${g.sheets.length} structure${g.sheets.length===1?"":"s"}</h2></div>`;
   if(g.sheets.length>6)h+=searchBox("Search point, structure, initials…");
@@ -325,7 +334,8 @@ function renderProject(app){
   wireSearch(app,renderProject);wireCommon(app);
   $("#back").onclick=()=>{filter.q="";view={name:"list"};render();scrollTo(0,0)};
   $("#editProj").onclick=()=>{view={name:"newproject",editJob:job};render();scrollTo(0,0)};
-  setActions([g.sheets.length?{label:"Export",cls:"ghost",fn:()=>{filter.job=job;view={name:"export"};render();scrollTo(0,0)}}:null,g.sheets.length?{label:"Print",cls:"ghost",fn:()=>openPrint({job})}:null,{label:"New structure",cls:"primary",fn:()=>newSheet(job)}]);
+  const fp=$("#fixProj");if(fp)fp.onclick=()=>{view={name:"newproject",editJob:job};render();scrollTo(0,0)};
+  setActions([g.sheets.length?{label:"Export",cls:"ghost",fn:()=>{filter.job=job;view={name:"export"};render();scrollTo(0,0)}}:null,g.sheets.length?{label:"Print",cls:"ghost",fn:()=>openPrint({job})}:null,pm.length?{label:"Complete details",cls:"primary",fn:()=>{view={name:"newproject",editJob:job};render();scrollTo(0,0)}}:{label:"New structure",cls:"primary",fn:()=>newSheet(job)}]);
 }
 
 function renderNewProject(app){
@@ -335,11 +345,12 @@ function renderNewProject(app){
   const v=k=>esc(editing?(g[k]||""):"");
   app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← ${editing?esc(projectTitle({job})):"Projects"}</button><h1>${editing?"Project details":"New project"}</h1></div>
    <section class="card" style="margin-top:14px;max-width:640px"><h2>Job${editing?" <small>Changes apply to every structure in this project</small>":""}</h2><form class="body" id="npForm" novalidate>
-     <div class="grid2"><label class="f"><span>AEG job no.</span><input id="npJob" inputmode="decimal" class="num" value="${esc(job)}" placeholder="e.g. 3083" required></label>
+     <div class="grid2"><label class="f"><span>AEG job no. *</span><input id="npJob" inputmode="decimal" class="num" value="${esc(job)}" placeholder="e.g. 3083" required></label>
        <label class="f"><span>Client job no.</span><input id="npClient" value="${v("client")}"></label></div>
-     <label class="f"><span>Project name</span><input id="npName" value="${v("name")}" placeholder="e.g. Vermont Ave under I-57"></label>
-     <label class="f"><span>Location</span><input id="npLoc" value="${v("location")}" placeholder="e.g. IL 53 + Boughton Rd"></label>
-     <label class="f"><span>Field initials</span><input id="npInit" value="${esc(editing?(g.initials||""):(last.initials||""))}" placeholder="e.g. SS+KC+OM"></label>
+     <label class="f"><span>Project name *</span><input id="npName" value="${v("name")}" placeholder="e.g. Vermont Ave under I-57"></label>
+     <label class="f"><span>Location *</span><input id="npLoc" value="${v("location")}" placeholder="e.g. IL 53 + Boughton Rd"></label>
+     <label class="f"><span>Field initials *</span><input id="npInit" value="${esc(editing?(g.initials||""):(last.initials||""))}" placeholder="e.g. SS+KC+OM"></label>
+     <p class="hint" style="margin:0;color:var(--muted);font-size:13px">* Required before any structure can be added.</p>
      <div class="warnline" id="npErr" hidden></div>
      <button class="btn primary" type="submit">${editing?"Save details":"Create project"}</button>
    </form></section>`;
@@ -349,7 +360,10 @@ function renderNewProject(app){
   $("#npForm").onsubmit=async e=>{
     e.preventDefault();const err=$("#npErr");err.hidden=true;
     const nj=$("#npJob").value.trim(),d={project:$("#npName").value.trim(),location:$("#npLoc").value.trim(),clientJobNo:$("#npClient").value.trim(),initials:$("#npInit").value.trim()};
-    if(!nj){err.textContent="Enter the AEG job number.";err.hidden=false;return}
+    const need=[[nj,"#npJob","AEG job no."],[d.project,"#npName","project name"],[d.location,"#npLoc","location"],[d.initials,"#npInit","field initials"]];
+    for(const [,sel] of need)$(sel).classList.remove("missing");
+    const miss=need.filter(([v])=>!v);
+    if(miss.length){for(const [,sel] of miss)$(sel).classList.add("missing");err.textContent=`Fill in the ${listWords(miss.map(m=>m[2]))}.`;err.hidden=false;$(miss[0][1]).focus();return}
     const exists=projectList().find(x=>x.job===nj);
     if(!editing&&exists){toast(`Job ${nj} already exists. Opened it.`);openProject(nj);return}
     if(editing&&nj!==job&&exists){err.textContent=`Job ${nj} already exists. Use a different number.`;err.hidden=false;return}
@@ -367,6 +381,8 @@ function renderNewProject(app){
 function newSheet(job){
   if(job===undefined)job=view.name==="edit"&&sheets[view.id]?(sheets[view.id].jobNo||""):(view.name==="project"?view.job:"");
   const g=projectList().find(x=>x.job===job);
+  const pm=projectMissing(g||{job});
+  if(pm.length){toast(`Complete the project details first: ${listWords(pm).replace(/\.$/,"")}.`,5000);view={name:"newproject",editJob:job};render();scrollTo(0,0);return}
   const base=g?{jobNo:g.job,project:g.name,location:g.location,clientJobNo:g.client,initials:g.initials,sheetOf:(g.sheets[0]||{}).sheetOf}:null;
   const s=blankSheet(base);sheets[s.id]=s;update(s.id,{},{now:true});
   view={name:"edit",id:s.id,slot:null};render();scrollTo(0,0);
@@ -449,10 +465,11 @@ function renderEdit(app){
     <div class="projinfo"><div><span>AEG job no.</span><b>${esc(s.jobNo||"—")}</b></div><div><span>Client job no.</span><b>${esc(s.clientJobNo||"—")}</b></div>
       <div><span>Project</span><b>${esc(s.project||"—")}</b></div><div><span>Location</span><b>${esc(s.location||"—")}</b></div></div>
     <div><button class="btn ghost" id="editProjFromSheet" type="button">Edit project details</button></div>
-    <div class="grid2">${field("initials","Field initials",s.initials,{ph:"SS+KC+OM"})}${field("date","Date",s.date,{type:"date"})}</div>
-    <div class="grid2">${field("sheetNo","Sheet",s.sheetNo,{num:true})}${field("sheetOf","Of",s.sheetOf,{num:true})}</div></div></section>`;
+    <div class="grid2">${field("initials","Field initials *",s.initials,{ph:"SS+KC+OM"})}${field("date","Date *",s.date,{type:"date"})}</div>
+    <div class="grid2">${field("sheetNo","Sheet",s.sheetNo,{num:true})}${field("sheetOf","Of",s.sheetOf,{num:true})}</div>
+    <div class="warnline" id="gateNote" hidden></div></div></section>`;
   h+=`<section class="card"><h2>Point &amp; rim</h2><div class="body">
-    <div class="grid2">${field("pointNo","Point no.",s.pointNo,{num:true})}${field("rim","Rim elevation",s.rim,{num:true,ph:"optional, ft",hint:"Enter to get invert elevations"})}</div>
+    <div class="grid2">${field("pointNo","Point no. *",s.pointNo,{num:true})}${field("rim","Rim elevation",s.rim,{num:true,ph:"optional, ft",hint:"Enter to get invert elevations"})}</div>
     <div class="grid2">${field("rimToBottom","Rim to bottom of structure (ft)",s.rimToBottom,{num:true})}${field("rimToBottomNote","Bottom note",s.rimToBottomNote,{ph:"e.g. top of debris"})}</div>
     <div class="calc" id="bottomElev">${elev(s.rim,s.rimToBottom)?`Bottom elev ${elev(s.rim,s.rimToBottom)}`:""}</div></div></section>`;
   h+=`<section class="card"><h2>Structure type <small>with code</small></h2><div class="body">${radios("structure",STRUCTS,s.structure)}
@@ -489,6 +506,7 @@ function renderEdit(app){
   app.innerHTML=h;
 
   wirePhotos(s);if(view.photo)renderLightbox();
+  applyGate(s);
   $("#back").onclick=()=>openProject(s.jobNo||"");
   $("#printOne").onclick=()=>{flushSaves();openPrint({only:s.id})};
   $("#editProjFromSheet").onclick=()=>{flushSaves();view={name:"newproject",editJob:s.jobNo||""};render();scrollTo(0,0)};
@@ -509,7 +527,7 @@ function renderEdit(app){
   const yd=$("#yesDel");if(yd)yd.onclick=async()=>{if(cloud.on)addTomb(s);for(const p of (s.photos||[]))dbDelPhoto(p.key).catch(()=>{});clearTimeout(saveTimers.get(s.id));saveTimers.delete(s.id);delete sheets[s.id];await dbDelSheet(s.id).catch(()=>{});openProject(s.jobNo||"");toast("Sheet deleted")};
   wireQA(s);
   const back={label:`Back to ${projectTitle({job:s.jobNo||""})}`,cls:"primary",fn:()=>openProject(s.jobNo||"")};
-  setActions([{label:"Next structure",cls:"ghost",fn:newSheet},
+  setActions([{label:"Next structure",cls:"ghost",fn:()=>newSheet()},
     (st==="draft"||st==="returned")&&cloud.on?{label:st==="returned"?"Resubmit for approval":"Submit for approval",cls:"primary",fn:()=>submitSheet(s)}
     :(st==="draft"&&!cloud.on)?{label:"Mark complete",cls:"primary",fn:()=>{update(s.id,{status:"submitted"},{now:true});rerender();toast("Marked complete")}}
     :back]);
@@ -531,8 +549,17 @@ function wireSlots(root){
     el.addEventListener("click",go);el.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go()}});
   });
 }
+// Sections after "Job" and "Point & rim" stay closed until the sheet's required header is filled in.
+function applyGate(s){
+  const miss=isLocked(s)?[]:sheetMissing(s);
+  const secs=[...document.querySelectorAll("#app .edgrid > section")].slice(2);
+  for(const sec of secs){sec.classList.toggle("gated",!!miss.length);if(miss.length)sec.setAttribute("inert","");else sec.removeAttribute("inert")}
+  const n=$("#gateNote");if(n){n.hidden=!miss.length;n.textContent=miss.length?`Fill in the ${listWords(miss.map(x=>x.toLowerCase()))} to open the rest of the sheet.`:""}
+  for(const [k] of SHEET_REQUIRED){const el=document.getElementById("f_"+k);if(el)el.classList.toggle("missing",!String(s[k]||"").trim())}
+}
 function refreshDerived(s){
   if(view.name!=="edit"||view.id!==s.id)return;
+  applyGate(s);
   const st=statusOf(s);
   const hp=$("#hdrPt");if(hp)hp.textContent=s.pointNo||"—";
   const hc=$("#hdrChip");if(hc){hc.className="chip "+st;hc.textContent=STATUS_LABEL[st]}
@@ -753,6 +780,8 @@ function wireSigPad(){
   return pad;
 }
 async function submitSheet(s){
+  const miss=sheetMissing(s).concat(projectMissing({job:s.jobNo,name:s.project,location:s.location,initials:s.initials}).filter(x=>x!=="Field initials"));
+  if(miss.length){toast(`Can't submit yet. Missing: ${listWords(miss).replace(/\.$/,"")}.`,5000);scrollTo(0,0);return}
   update(s.id,{status:"submitted",submittedAt:new Date().toISOString(),submittedBy:(cloud.me&&(cloud.me.full_name||cloud.me.email))||s.initials||""},{now:true});
   rerender();toast("Submitted for approval");syncSoon(500);
 }
