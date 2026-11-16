@@ -1,7 +1,7 @@
 /* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="2.6.1";
+const APP_VERSION="2.6.2";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
@@ -797,8 +797,12 @@ const ink=x=>`<span class="ink">${esc(x||"")}</span>`;
 const uline=(x,cls="")=>`<span class="u${cls?" "+cls:""}"><span class="ink">${esc(x||"")}</span></span>`;
 function pipeBlock(s,k){
   const p=(s.pipes||{})[k]||{};
-  const rows=[["SIZE",p.size?p.size+"″":"",null],["MAT",p.mat,null],["INV",p.inv,p.invNote||(elev(s.rim,p.inv)?"El "+elev(s.rim,p.inv):"")],["T/PIPE",p.tpipe,p.tpipeNote],["T/WATER",p.twater,p.twaterNote],["T/DEBRIS",p.tdebris,p.tdebrisNote]];
-  return `<div class="pb"><div class="dir">${k}</div>${rows.map(([l,v,n])=>`<span class="lb">${l}</span>${n===null?`<span class="u" style="grid-column:span 2"><span class="ink">${esc(v||"")}</span></span>`:`${uline(v)}${uline(n,"n")}`}`).join("")}</div>`;
+  // Two blanks per reading, as on the paper sheet: measured depth (with any note) | elevation (rim − depth, 2 decimals)
+  const depth=(v,note)=>[v,note].filter(x=>String(x||"").trim()).join(" ");
+  const rows=[["SIZE",p.size?p.size+"″":"",null],["MAT",p.mat,null],
+    ["INV",depth(p.inv,p.invNote),elev(s.rim,p.inv)||""],["T/PIPE",depth(p.tpipe,p.tpipeNote),elev(s.rim,p.tpipe)||""],
+    ["T/WATER",depth(p.twater,p.twaterNote),elev(s.rim,p.twater)||""],["T/DEBRIS",depth(p.tdebris,p.tdebrisNote),elev(s.rim,p.tdebris)||""]];
+  return `<div class="pb"><div class="dir">${k}</div>${rows.map(([l,v,e])=>`<span class="lb">${l}</span>${e===null?`<span class="u" style="grid-column:span 2"><span class="ink">${esc(v||"")}</span></span>`:`${uline(v)}${uline(e,"el")}`}`).join("")}</div>`;
 }
 function sheetPageHTML(s,pageNo,pageTotal){
   const ck=(list,val)=>list.map(o=>{const l=Array.isArray(o)?o[0]:o,c=Array.isArray(o)?o[1]:"";return `<div class="ck">${cbx(val===l)}${esc(l)}${c?" "+c:""}</div>`}).join("");
@@ -810,8 +814,9 @@ function sheetPageHTML(s,pageNo,pageTotal){
       <div class="p-fields">
         <div class="ln"><span>Project name:</span>${uline(s.project)}</div>
         <div class="ln"><span>Location:</span>${uline(s.location)}</div>
-        <div class="ln"><span>AEG job no.:</span>${uline(s.jobNo)}<span>Client job no.:</span>${uline(s.clientJobNo)}</div>
-        <div class="ln"><span>Field initials:</span>${uline(s.initials)}<span>Date:</span>${uline(fmtDate(s.date))}</div>
+        <div class="ln"><span>AEG job no.:</span>${uline(s.jobNo)}</div>
+        <div class="ln"><span>Client job no.:</span>${uline(s.clientJobNo)}</div>
+        <div class="ln"><span>Field initials:</span>${uline(s.initials)}<span>Date:</span><span class="u" style="flex:0 0 1.05in"><span class="ink">${esc(fmtDate(s.date))}</span></span></div>
         <div class="ln" style="justify-content:flex-end"><span>Sheet</span><span class="u" style="flex:0 0 .7in"><span class="ink">${esc(s.sheetNo)}</span></span><span>of</span><span class="u" style="flex:0 0 .7in"><span class="ink">${esc(s.sheetOf)}</span></span></div>
       </div>
     </div>

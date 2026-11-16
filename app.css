@@ -351,3 +351,23 @@ body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
 .f input.missing{border-color:var(--warn);box-shadow:0 0 0 1px var(--warn) inset}
 .edgrid > section.gated{opacity:.42;filter:grayscale(.6)}
 .chip.signed{color:var(--ok);background:var(--ok-soft);border-color:transparent}
+
+/* print fixes (2.6.2): never cut values off; always one page on Letter or A4 from any device */
+.pg .u{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.15}
+.pb{grid-template-columns:auto 1.15fr 1fr}
+.pb .u.el{font-family:var(--f-mono);font-size:8.2pt}
+.p-fields{gap:4px}
+.p-mid .ck{font-size:7.9pt}
+@page{size:letter;margin:.3in}
+@media print{
+  /* Phones and some browsers add their own header/footer (address, date, page count); leave room for it on Letter and A4 */
+  .pg{height:9.15in!important;max-width:7.6in;margin:0 auto!important;font-size:9pt}
+  .p-head{padding:.07in .12in}
+  .p-co .plogo{height:.68in}
+  .p-mid>div{padding:.05in .1in}
+  .p-com{min-height:.5in}
+  .p-qa{min-height:.45in}
+  .p-pipes{padding:.05in .12in}
+  .pplan svg{width:1.4in;height:1.4in}
+  .p-foot{padding-top:2px}
+}
