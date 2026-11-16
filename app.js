@@ -1,13 +1,13 @@
 /* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="2.6.0";
+const APP_VERSION="2.6.1";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
 const CONDS=["Excellent","Good","Poor","Collapsed"];
 const CONSTR=["Precast Sections","Cast in Place","Concrete Block","Brick","Other"];
-const MATS=["RCP","PVC","DIP","CMP","VCP","HDPE","CIP","Brick","Other"];
+const MATS=["RCP","CONC","PVC","DIP","IP","CMP","VCP","HDPE","CIP","Brick","Other"];
 const SLOTS=[["NW",315],["N",0],["NE",45],["W",270],["E",90],["SW",225],["S",180],["SE",135]];
 const PHOTO_TAGS=["Structure","Lid / frame","Interior","Condition / defect","Debris",...SLOTS.map(([k])=>k+" pipe"),"Other"];
 const STATUS_LABEL={draft:"Draft",done:"Complete",signed:"Signed",checked:"Checked"};
