@@ -1,7 +1,7 @@
 /* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="2.5.0";
+const APP_VERSION="2.6.0";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
@@ -10,7 +10,7 @@ const CONSTR=["Precast Sections","Cast in Place","Concrete Block","Brick","Other
 const MATS=["RCP","PVC","DIP","CMP","VCP","HDPE","CIP","Brick","Other"];
 const SLOTS=[["NW",315],["N",0],["NE",45],["W",270],["E",90],["SW",225],["S",180],["SE",135]];
 const PHOTO_TAGS=["Structure","Lid / frame","Interior","Condition / defect","Debris",...SLOTS.map(([k])=>k+" pipe"),"Other"];
-const STATUS_LABEL={draft:"Draft",submitted:"Awaiting approval",returned:"Returned",approved:"Approved",checked:"Checked"};
+const STATUS_LABEL={draft:"Draft",done:"Complete",signed:"Signed",checked:"Checked"};
 
 const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -52,14 +52,13 @@ function blankSheet(from){
 // QA/QC: qa = the supervisor's latest decision {status, byId, byName, at, comment, signature}
 const statusOf=s=>{
   const q=s.qa||{};
-  if(q.status==="approved")return "approved";
-  if(q.status==="returned"&&!(s.submittedAt&&s.submittedAt>q.at))return "returned";
-  if(s.status==="submitted"||s.status==="done")return "submitted";
+  if(q.status==="signed"||q.status==="approved")return "signed";
+  if(s.status==="done"||s.status==="submitted"||s.status==="returned"||s.status==="approved")return "done";
   if(s.checkedBy&&s.checkedBy.trim()&&!cloud.on)return "checked";
   return "draft";
 };
 const canApprove=()=>!!(cloud.on&&cloud.session&&cloud.me&&["supervisor","admin"].includes(cloud.me.role));
-const isLocked=s=>statusOf(s)==="approved";
+const isLocked=s=>false; // sign-off no longer locks a sheet
 
 function update(id,patch,{now=false}={}){
   const s=sheets[id];if(!s)return;
@@ -270,7 +269,7 @@ function renderList(app){
   }else{
     h+=`<div class="projgrid">`;
     for(const g of list){
-      const c={draft:0,submitted:0,returned:0,approved:0,checked:0};for(const x of g.sheets)c[statusOf(x)]++;
+      const c={draft:0,done:0,signed:0,checked:0};for(const x of g.sheets)c[statusOf(x)]++;
       const waiting=g.sheets.filter(needsBackup).length;
       const hits=q&&!([g.job,g.name,g.location,g.client].join(" ").toLowerCase().includes(q))?g.sheets.filter(x=>matches(x,q)).length:0;
       h+=`<button class="proj" data-proj="${esc(g.job)}">
@@ -278,7 +277,7 @@ function renderList(app){
         <span class="pn">${esc(g.name||g.location||"No project name yet")}</span>
         ${g.name&&g.location?`<span class="pl">${esc(g.location)}</span>`:""}
         <span class="pc">${g.sheets.length} structure${g.sheets.length===1?"":"s"}${g.last?` · updated ${esc(new Date(g.last).toLocaleDateString([],{month:"numeric",day:"numeric",year:"numeric"}))}`:""}${hits?` · ${hits} match${hits===1?"":"es"}`:""}</span>
-        <span class="pchips">${c.draft?`<span class="chip draft">${c.draft} draft</span>`:""}${c.submitted?`<span class="chip submitted">${c.submitted} awaiting approval</span>`:""}${c.returned?`<span class="chip returned">${c.returned} returned</span>`:""}${c.approved?`<span class="chip approved">${c.approved} approved</span>`:""}${c.checked?`<span class="chip checked">${c.checked} checked</span>`:""}${waiting?`<span class="chip unsynced">${waiting} ${cloud.on&&cloud.session?"not uploaded":"not backed up"}</span>`:""}</span>
+        <span class="pchips">${c.draft?`<span class="chip draft">${c.draft} draft</span>`:""}${c.done?`<span class="chip done">${c.done} complete</span>`:""}${c.signed?`<span class="chip signed">${c.signed} signed</span>`:""}${c.checked?`<span class="chip checked">${c.checked} checked</span>`:""}${waiting?`<span class="chip unsynced">${waiting} ${cloud.on&&cloud.session?"not uploaded":"not backed up"}</span>`:""}</span>
       </button>`;
     }
     h+=`</div>`;
@@ -528,8 +527,7 @@ function renderEdit(app){
   wireQA(s);
   const back={label:`Back to ${projectTitle({job:s.jobNo||""})}`,cls:"primary",fn:()=>openProject(s.jobNo||"")};
   setActions([{label:"Next structure",cls:"ghost",fn:()=>newSheet()},
-    (st==="draft"||st==="returned")&&cloud.on?{label:st==="returned"?"Resubmit for approval":"Submit for approval",cls:"primary",fn:()=>submitSheet(s)}
-    :(st==="draft"&&!cloud.on)?{label:"Mark complete",cls:"primary",fn:()=>{update(s.id,{status:"submitted"},{now:true});rerender();toast("Marked complete")}}
+    st==="draft"?{label:"Mark complete",cls:"primary",fn:()=>markComplete(s)}
     :back]);
 }
 function planBoxHTML(s,sel){
@@ -573,14 +571,14 @@ function rerender(){const y=scrollY;const id=document.activeElement&&document.ac
 
 /* ---------- export / import ---------- */
 function toCSV(list){
-  const cols=["Job No","Client Job No","Project","Location","Field Initials","Date","Sheet","Of","Point No","Rim Elev","Structure","Structure Code","Lid Type","Text on Lid","Lid Shape","Lid Size","Condition","Construction","Inside Dim","Rim to Bottom (ft)","Bottom Note","Pipe Dir","Size (in)","Material","Inv (ft)","Inv Elev","Inv Note","T/Pipe (ft)","T/Water (ft)","T/Debris (ft)","Photos","Comments","Checked By","Check Date","Status","QA Status","QA By","QA Date","QA Comment"];
+  const cols=["Job No","Client Job No","Project","Location","Field Initials","Date","Sheet","Of","Point No","Rim Elev","Structure","Structure Code","Lid Type","Text on Lid","Lid Shape","Lid Size","Condition","Construction","Inside Dim","Rim to Bottom (ft)","Bottom Note","Pipe Dir","Size (in)","Material","Inv (ft)","Inv Elev","Inv Note","T/Pipe (ft)","T/Water (ft)","T/Debris (ft)","Photos","Comments","Checked By","Check Date","Status","Signed By","Signed Date","Supervisor Comment"];
   const q=v=>{v=String(v==null?"":v);return /[",\n]/.test(v)?`"${v.replace(/"/g,'""')}"`:v};
   const rows=[cols];
   for(const s of list){
     const code=(STRUCTS.find(x=>x[0]===s.structure)||[])[1]||"";
     const base=[s.jobNo,s.clientJobNo,s.project,s.location,s.initials,s.date,s.sheetNo,s.sheetOf,s.pointNo,s.rim,s.structure==="Other"?s.structureOther:s.structure,code,s.lid,s.lidText,s.shape,s.shapeDims,s.condition,s.construction==="Other"?s.constructionOther:s.construction,s.insideDim,s.rimToBottom,s.rimToBottomNote];
     const q=s.qa||{};
-    const tail=[(s.photos||[]).length,s.comments,s.checkedBy,s.checkedDate,STATUS_LABEL[statusOf(s)],q.status||"",q.byName||"",q.at?q.at.slice(0,10):"",q.comment||""];
+    const tail=[(s.photos||[]).length,s.comments,s.checkedBy,s.checkedDate,STATUS_LABEL[statusOf(s)],isSigned(s)?q.byName||"":"",isSigned(s)&&q.at?q.at.slice(0,10):"",isSigned(s)?q.comment||"":""];
     const ps=SLOTS.map(([k])=>[k,(s.pipes||{})[k]]).filter(([,p])=>hasData(p));
     if(!ps.length)rows.push([...base,"","","","","","","","","",...tail]);
     for(const [k,p] of ps)rows.push([...base,k,p.size,p.mat,p.inv,elev(s.rim,p.inv)||"",p.invNote,p.tpipe,p.twater,p.tdebris,...tail]);
@@ -700,69 +698,49 @@ async function renderMenu(app){
   }catch(e){}
 }
 
-/* ---------- QA/QC approval ---------- */
+/* ---------- supervisor sign-off ---------- */
+// qa = the supervisor's sign-off {status:"signed", byId, byName, at, comment, signature}.
+// Older sheets may hold status "approved" from the earlier approval workflow; they count as signed.
 const fmtWhen=iso=>iso?new Date(iso).toLocaleString([],{month:"numeric",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"}):"";
-function allWarnings(s){return SLOTS.map(([k])=>hasData((s.pipes||{})[k])?warnsHTML(s,k):"").join("")}
-function qaChecks(s){
-  return [
-    ["Point number entered",!!(s.pointNo||"").trim()],
-    ["Structure type selected",!!s.structure],
-    ["Rim to bottom recorded",!!(s.rimToBottom||"").trim()],
-    ["At least one pipe entered",pipeCount(s)>0],
-    ["At least one photo",(s.photos||[]).length>0],
-    ["No reading warnings",!allWarnings(s)]
-  ];
-}
-function queueList(kind){
-  return visibleSheets().filter(x=>statusOf(x)===kind).sort((a,b)=>(a.submittedAt||a.updatedAt||"").localeCompare(b.submittedAt||b.updatedAt||""));
-}
+const isSigned=s=>{const q=s.qa||{};return q.status==="signed"||q.status==="approved"};
+function toSignList(){return visibleSheets().filter(x=>statusOf(x)==="done").sort((a,b)=>(a.updatedAt||"").localeCompare(b.updatedAt||""))}
 function queueCardHTML(){
-  if(!cloud.on||!cloud.session)return "";
-  let h="";
-  if(canApprove()){const n=queueList("submitted").length;
-    if(n)h+=`<div class="qacard"><p><b>${n} sheet${n===1?"":"s"} awaiting your approval</b>Review each structure, then approve and sign, or return it to the crew with a comment.</p><button class="btn primary" data-queue="submitted">Review now</button></div>`;}
-  const r=queueList("returned").length;
-  if(r)h+=`<div class="qacard bad"><p><b>${r} sheet${r===1?"":"s"} returned for changes</b>A supervisor asked for changes. Open each one to see the comment, fix it and resubmit.</p><button class="btn" data-queue="returned">Open</button></div>`;
-  return h;
+  if(!canApprove())return "";
+  const n=toSignList().length;if(!n)return "";
+  return `<div class="qacard"><p><b>${n} complete sheet${n===1?"":"s"} to sign</b>Open each one to add your comment and signature.</p><button class="btn primary" data-queue="done">Open list</button></div>`;
 }
 function renderQueue(app){
-  const kind=view.kind==="returned"?"returned":"submitted";const list=queueList(kind);
-  app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← Projects</button><h1>${kind==="returned"?"Returned for changes":"Awaiting approval"}</h1></div>
-    ${list.length?`<div class="rows" style="margin-top:12px">${list.map(x=>`<div class="qrow"><div class="qjob">${esc(projectTitle({job:x.jobNo||""}))}${x.submittedBy?` · submitted by ${esc(x.submittedBy)}`:""}${x.submittedAt?` · ${esc(fmtWhen(x.submittedAt))}`:""}</div>${sheetRowHTML(x)}</div>`).join("")}</div>`
-      :`<div class="empty" style="margin-top:12px"><b>All clear</b>${kind==="returned"?"Nothing is waiting for changes.":"No sheets are waiting for approval."}</div>`}`;
+  const list=toSignList();
+  app.innerHTML=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← Projects</button><h1>Sheets to sign</h1></div>
+    ${list.length?`<div class="rows" style="margin-top:12px">${list.map(x=>`<div class="qrow"><div class="qjob">${esc(projectTitle({job:x.jobNo||""}))}</div>${sheetRowHTML(x)}</div>`).join("")}</div>`
+      :`<div class="empty" style="margin-top:12px"><b>All signed</b>No complete sheets are waiting for a signature.</div>`}`;
   wireCommon(app);
   $("#back").onclick=()=>{view={name:"list"};render();scrollTo(0,0)};
   setActions([]);
 }
 function qaBannerHTML(s){
-  const st=statusOf(s),q=s.qa||{};
-  if(st==="approved")return `<div class="qabanner ok"><b>Approved by ${esc(q.byName||"supervisor")}</b> on ${esc(fmtWhen(q.at))}. This sheet is locked.${q.comment?`<div>“${esc(q.comment)}”</div>`:""}</div>`;
-  if(st==="returned")return `<div class="qabanner bad"><b>Returned by ${esc(q.byName||"supervisor")}</b> on ${esc(fmtWhen(q.at))}.<div>“${esc(q.comment||"")}”</div>Make the changes, then tap <strong>Resubmit for approval</strong>.</div>`;
-  if(st==="submitted")return `<div class="qabanner"><b>Awaiting approval</b>${s.submittedBy?` · submitted by ${esc(s.submittedBy)}`:""}${s.submittedAt?` on ${esc(fmtWhen(s.submittedAt))}`:""}. You can still make changes until it's approved.</div>`;
-  return "";
+  if(!isSigned(s))return "";const q=s.qa||{};
+  const after=s.updatedAt&&q.at&&new Date(s.updatedAt)-new Date(q.at)>60000;
+  return `<div class="qabanner ok"><b>Signed by ${esc(q.byName||"supervisor")}</b> on ${esc(fmtWhen(q.at))}.${after?` <span>Changed after it was signed.</span>`:""}</div>`;
 }
 function qaPanelHTML(s){
   if(!cloud.on)return "";
-  const st=statusOf(s),q=s.qa||{};
-  let h=`<section class="card full qapanel" style="margin-top:14px"><h2>QA/QC approval <small>${esc(STATUS_LABEL[st])}</small></h2><div class="body">`;
-  if(st==="approved"){
-    h+=`<div class="qasig"><div><span>Approved by</span><b>${esc(q.byName||"")}</b></div><div><span>Date</span><b>${esc(fmtWhen(q.at))}</b></div>${q.comment?`<div><span>Comment</span><b>${esc(q.comment)}</b></div>`:""}</div>
-      ${q.signature?`<img class="sigimg" src="${q.signature}" alt="Signature of ${esc(q.byName||"")}">`:""}`;
-    if(canApprove())h+=view.reopenConfirm?`<div class="confirm" style="margin:0"><p>Reopen this sheet? It unlocks for changes and needs approving again.</p><button class="btn ghost" id="qaKeep">Keep approved</button><button class="btn danger" id="qaReopenYes">Reopen</button></div>`:`<div><button class="btn ghost" id="qaReopen">Reopen for changes</button></div>`;
-  }else if(canApprove()){
-    const checks=qaChecks(s);
-    h+=`<ul class="qachecks">${checks.map(([t,ok])=>`<li class="${ok?"ok":"no"}"><span aria-hidden="true">${ok?"✓":"!"}</span>${esc(t)}</li>`).join("")}</ul>
-      ${st==="draft"?`<p class="calc" style="font-family:var(--f-body);margin:0">The crew hasn't submitted this sheet yet. You can still approve it.</p>`:""}
-      <label class="f"><span>QA/QC comment</span><textarea id="qaComment" placeholder="Required when returning a sheet">${esc(view.qaComment||"")}</textarea></label>
+  const q=s.qa||{},signed=isSigned(s),editing=canApprove()&&(!signed||view.resign);
+  let h=`<section class="card full qapanel" style="margin-top:14px"><h2>Supervisor sign-off <small>${signed?"Signed":"Not signed yet"}</small></h2><div class="body">`;
+  if(signed&&!editing){
+    h+=`<div class="qasig"><div><span>Signed by</span><b>${esc(q.byName||"")}</b></div><div><span>Date</span><b>${esc(fmtWhen(q.at))}</b></div></div>
+      ${q.comment?`<div class="qasig"><div><span>Comment</span><b>${esc(q.comment)}</b></div></div>`:""}
+      ${q.signature?`<img class="sigimg" src="${q.signature}" alt="Signature of ${esc(q.byName||"")}">`:""}
+      ${canApprove()?`<div><button class="btn ghost" id="qaResign">Change comment or signature</button></div>`:""}`;
+  }else if(editing){
+    h+=`<label class="f"><span>Comment</span><textarea id="qaComment" placeholder="Optional">${esc(view.qaComment!==undefined?view.qaComment:(q.comment||""))}</textarea></label>
       <div class="sigwrap"><div class="gl">Signature</div><canvas id="sigPad" width="640" height="200" aria-label="Sign here"></canvas>
         <div class="sigtools"><button class="btn ghost" id="sigClear" type="button">Clear</button>${lsGet(sigKey(),null)?`<button class="btn ghost" id="sigSaved" type="button">Use my saved signature</button>`:""}
         <label class="ck2" style="min-height:0;font-weight:500"><input type="checkbox" id="sigRemember"${lsGet(sigKey(),null)?" checked":""}> Remember my signature on this device</label></div></div>
       <div class="warnline" id="qaErr" hidden></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="qaApprove">Approve and sign</button><button class="btn danger" id="qaReturn">Return to crew</button></div>`;
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="qaSign">Sign</button>${signed?`<button class="btn ghost" id="qaCancel">Cancel</button>`:""}</div>`;
   }else{
-    h+=st==="submitted"?`<p style="margin:0">Submitted. A supervisor will review it and approve it or send it back with comments.</p>`
-      :st==="returned"?`<p style="margin:0">Make the changes the supervisor asked for, then tap <strong>Resubmit for approval</strong>.</p>`
-      :`<p style="margin:0">When the sheet is complete, tap <strong>Submit for approval</strong>. A supervisor reviews it and signs it off.</p>`;
+    h+=`<p style="margin:0">A supervisor signs here after reviewing the sheet.</p>`;
   }
   return h+`</div></section>`;
 }
@@ -779,11 +757,10 @@ function wireSigPad(){
     data:()=>c.toDataURL("image/png")};
   return pad;
 }
-async function submitSheet(s){
+function markComplete(s){
   const miss=sheetMissing(s).concat(projectMissing({job:s.jobNo,name:s.project,location:s.location,initials:s.initials}).filter(x=>x!=="Field initials"));
-  if(miss.length){toast(`Can't submit yet. Missing: ${listWords(miss).replace(/\.$/,"")}.`,5000);scrollTo(0,0);return}
-  update(s.id,{status:"submitted",submittedAt:new Date().toISOString(),submittedBy:(cloud.me&&(cloud.me.full_name||cloud.me.email))||s.initials||""},{now:true});
-  rerender();toast("Submitted for approval");syncSoon(500);
+  if(miss.length){toast(`Can't mark complete yet. Missing: ${listWords(miss).replace(/\.$/,"")}.`,5000);scrollTo(0,0);return}
+  update(s.id,{status:"done"},{now:true});rerender();toast("Marked complete");
 }
 function wireQA(s){
   const pad=wireSigPad();
@@ -791,34 +768,22 @@ function wireQA(s){
   const cm=$("#qaComment");if(cm)cm.oninput=()=>{view.qaComment=cm.value};
   const sc=$("#sigClear");if(sc)sc.onclick=()=>pad&&pad.clear();
   const ss=$("#sigSaved");if(ss)ss.onclick=()=>{const u=lsGet(sigKey(),null);if(u&&pad)pad.load(u)};
-  const me=()=>({byId:cloud.me.id,byName:cloud.me.full_name||cloud.me.email,at:new Date().toISOString()});
-  // Pull the latest copy first so nobody approves a version the crew has since changed.
-  const fresh=async()=>{const before=s.updatedAt;await syncNow();const cur=sheets[s.id];
-    if(!cur){toast("This sheet was deleted.");view={name:"list"};render();return null}
-    if(cur.updatedAt!==before&&cur.updatedByName&&cur.updatedByName!==(cloud.me.full_name||cloud.me.email)){rerender();toast(`${cur.updatedByName} just changed this sheet. Review it again before deciding.`,6000);return null}
-    return cur};
-  const ap=$("#qaApprove");if(ap)ap.onclick=async()=>{
-    err("");if(!pad||!pad.has())return err("Sign in the box before approving.");
+  const rs=$("#qaResign");if(rs)rs.onclick=()=>{view.resign=true;view.qaComment=undefined;rerender()};
+  const cc=$("#qaCancel");if(cc)cc.onclick=()=>{view.resign=false;view.qaComment=undefined;rerender()};
+  const sg=$("#qaSign");if(sg)sg.onclick=async()=>{
+    err("");if(!pad||!pad.has())return err("Sign in the box first.");
     const sig=pad.data();if($("#sigRemember").checked)lsSet(sigKey(),sig);else lsSet(sigKey(),null);
-    ap.disabled=true;ap.textContent="Approving…";
-    const cur=await fresh();if(!cur){return}
-    const d=me();
-    update(s.id,{qa:Object.assign({status:"approved",comment:(cm&&cm.value.trim())||"",signature:sig},d),status:"approved",checkedBy:d.byName,checkedDate:today()},{now:true});
-    view.qaComment="";rerender();toast("Approved and signed");syncSoon(300);
+    sg.disabled=true;sg.textContent="Signing…";
+    await syncNow(); // sign the latest copy of the sheet
+    if(!sheets[s.id]){toast("This sheet was deleted.");view={name:"list"};render();return}
+    const by=cloud.me.full_name||cloud.me.email;
+    update(s.id,{qa:{status:"signed",byId:cloud.me.id,byName:by,at:new Date().toISOString(),comment:(cm&&cm.value.trim())||"",signature:sig},checkedBy:by,checkedDate:today()},{now:true});
+    view.resign=false;view.qaComment=undefined;rerender();toast("Signed");syncSoon(300);
   };
-  const rt=$("#qaReturn");if(rt)rt.onclick=async()=>{
-    err("");const c=(cm&&cm.value.trim())||"";if(!c)return err("Write a comment so the crew knows what to change.");
-    rt.disabled=true;const cur=await fresh();if(!cur)return;
-    update(s.id,Object.assign({qa:Object.assign({status:"returned",comment:c},me()),status:"returned"}),{now:true});
-    view.qaComment="";rerender();toast("Returned to the crew");syncSoon(300);
-  };
-  const ro=$("#qaReopen");if(ro)ro.onclick=()=>{view.reopenConfirm=true;rerender()};
-  const rk=$("#qaKeep");if(rk)rk.onclick=()=>{view.reopenConfirm=false;rerender()};
-  const ry=$("#qaReopenYes");if(ry)ry.onclick=()=>{view.reopenConfirm=false;update(s.id,{qa:Object.assign({status:"reopened"},me()),status:"draft",checkedBy:"",checkedDate:""},{now:true});rerender();toast("Reopened for changes");syncSoon(300)};
 }
 function qaPrintHTML(s){
-  const q=s.qa||{};const ok=statusOf(s)==="approved";
-  return `<div class="p-qa"><div class="qa-l"><h4>QA/QC approval:</h4>${ok?`<span class="ink">Approved by ${esc(q.byName||"")} on ${esc(fmtDate((q.at||"").slice(0,10)))}</span>${q.comment?`<div class="ink" style="font-family:var(--f-body)">${esc(q.comment)}</div>`:""}`:`<span class="ink">${esc(STATUS_LABEL[statusOf(s)])}</span>`}</div><div class="qa-r">${ok&&q.signature?`<img src="${q.signature}" alt="Signature">`:""}<span>Supervisor signature</span></div></div>`;
+  const q=s.qa||{};const ok=isSigned(s);
+  return `<div class="p-qa"><div class="qa-l"><h4>Supervisor comment:</h4>${ok?`<div class="ink" style="font-family:var(--f-body)">${esc(q.comment||"")}</div><div class="ink" style="font-size:8pt">Signed by ${esc(q.byName||"")} on ${esc(fmtDate((q.at||"").slice(0,10)))}</div>`:""}</div><div class="qa-r">${ok&&q.signature?`<img src="${q.signature}" alt="Signature">`:""}<span>Supervisor signature</span></div></div>`;
 }
 
 /* ---------- print (AEG paper layout) ---------- */
@@ -887,7 +852,7 @@ addEventListener("resize",()=>{if(view.name==="print")fitPages()});
 function renderPrint(app){
   const all=visibleSheets();const jobs=[...new Set(all.map(s=>s.jobNo||""))].sort();
   const pool=all.filter(s=>!printOpt.job||s.jobNo===printOpt.job).sort((a,b)=>String(a.pointNo).localeCompare(String(b.pointNo),undefined,{numeric:true}));
-  const chosen=pool.filter(s=>(!printOpt.sel||printOpt.sel.has(s.id))&&(!printOpt.approvedOnly||statusOf(s)==="approved"));
+  const chosen=pool.filter(s=>(!printOpt.sel||printOpt.sel.has(s.id))&&(!printOpt.approvedOnly||isSigned(s)));
   const per=printOpt.per;
   let total=0;for(const s of chosen)total+=1+(printOpt.photos?Math.ceil((s.photos||[]).length/per):0);
   const nPh=chosen.reduce((a,s)=>a+(s.photos||[]).length,0);
@@ -899,7 +864,7 @@ function renderPrint(app){
         <label class="f"><span>Photos</span><select id="pph"><option value="0"${!printOpt.photos?" selected":""}>Don't include photos</option>${[1,2,4,6].map(k=>`<option value="${k}"${printOpt.photos&&per===k?" selected":""}>${k} photo${k>1?"s":""} per page</option>`).join("")}</select></label></div>
       <div class="gl" style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Structures (${chosen.length} of ${pool.length} selected) · <button class="iconbtn" id="pall" style="color:var(--ink);min-height:30px">All</button> <button class="iconbtn" id="pnone" style="color:var(--ink);min-height:30px">None</button></div>
       <div class="sel">${pool.map(s=>`<label><input type="checkbox" data-ps="${esc(s.id)}"${!printOpt.sel||printOpt.sel.has(s.id)?" checked":""}>Pt ${esc(s.pointNo||"—")}${(s.photos||[]).length?` <span style="color:var(--muted)">· ${s.photos.length} photo${s.photos.length===1?"":"s"}</span>`:""}</label>`).join("")||'<span class="calc">No sheets for this job.</span>'}</div>
-      <label class="ck2" style="font-weight:500"><input type="checkbox" id="pAppr"${printOpt.approvedOnly?" checked":""}> Approved sheets only</label>
+      <label class="ck2" style="font-weight:500"><input type="checkbox" id="pAppr"${printOpt.approvedOnly?" checked":""}> Signed sheets only</label>
       <div class="calc">${chosen.length} sheet${chosen.length===1?"":"s"} · ${nPh} photo${nPh===1?"":"s"} · ${total} page${total===1?"":"s"}</div>
       <p style="margin:0;color:var(--muted);font-size:14px">To make a PDF for the client, pick <strong>Save as PDF</strong> (or Microsoft Print to PDF) as the printer.</p>
     </div></section></div>

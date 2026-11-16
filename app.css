@@ -350,3 +350,4 @@ body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
 /* required information */
 .f input.missing{border-color:var(--warn);box-shadow:0 0 0 1px var(--warn) inset}
 .edgrid > section.gated{opacity:.42;filter:grayscale(.6)}
+.chip.signed{color:var(--ok);background:var(--ok-soft);border-color:transparent}
