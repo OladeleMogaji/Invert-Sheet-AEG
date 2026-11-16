@@ -1,7 +1,7 @@
 /* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="2.6.2";
+const APP_VERSION="2.7.0";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
@@ -470,7 +470,7 @@ function renderEdit(app){
   h+=`<section class="card"><h2>Point &amp; rim</h2><div class="body">
     <div class="grid2">${field("pointNo","Point no. *",s.pointNo,{num:true})}${field("rim","Rim elevation",s.rim,{num:true,ph:"optional, ft",hint:"Enter to get invert elevations"})}</div>
     <div class="grid2">${field("rimToBottom","Rim to bottom of structure (ft)",s.rimToBottom,{num:true})}${field("rimToBottomNote","Bottom note",s.rimToBottomNote,{ph:"e.g. top of debris"})}</div>
-    <div class="calc" id="bottomElev">${elev(s.rim,s.rimToBottom)?`Bottom elev ${elev(s.rim,s.rimToBottom)}`:""}</div></div></section>`;
+    <div class="calc" id="bottomElev">${elev(s.rim,s.rimToBottom)?`Bottom EL: ${elev(s.rim,s.rimToBottom)}`:""}</div></div></section>`;
   h+=`<section class="card"><h2>Structure type <small>with code</small></h2><div class="body">${radios("structure",STRUCTS,s.structure)}
     ${s.structure==="Other"?field("structureOther","Describe",s.structureOther):""}${field("insideDim","Structure inside dimension",s.insideDim,{ph:"e.g. 4′ dia"})}</div></section>`;
   h+=`<section class="card"><h2>Lid</h2><div class="body"><div class="group"><div class="gl">Lid type</div>${radios("lid",LIDS,s.lid)}</div>
@@ -490,7 +490,7 @@ function renderEdit(app){
       <div class="grid2"><label class="f"><span>Size (in)</span><input id="p_size" data-p="size" inputmode="decimal" class="num" value="${esc(p.size||"")}" placeholder="12"></label>
       <label class="f"><span>Material</span><select id="p_mat" data-p="mat"><option value=""></option>${MATS.map(m=>`<option${m===p.mat?" selected":""}>${m}</option>`).join("")}</select></label></div>
       ${["inv","tpipe","twater","tdebris"].map(k=>{const lab={inv:"Inv",tpipe:"T/Pipe",twater:"T/Water",tdebris:"T/Debris"}[k];const e=elev(s.rim,p[k]);
-        return `<div class="grid2"><label class="f"><span>${lab} (ft)</span><input id="p_${k}" data-p="${k}" inputmode="decimal" class="num" value="${esc(p[k]||"")}"><span class="calc" data-elev="${k}">${e?`Elev ${e}`:""}</span></label>
+        return `<div class="grid2"><label class="f"><span>${lab} (ft)</span><input id="p_${k}" data-p="${k}" inputmode="decimal" class="num" value="${esc(p[k]||"")}"><span class="calc" data-elev="${k}">${e?`EL: ${e}`:""}</span></label>
         <label class="f"><span>${lab} note</span><input id="p_${k}Note" data-p="${k}Note" value="${esc(p[k+"Note"]||"")}" placeholder="${k==="inv"?"e.g. debris":""}"></label></div>`}).join("")}
       <div id="pipeWarn" style="display:grid;gap:8px">${warnsHTML(s,sel)}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost" id="clearPipe">Clear ${sel} pipe</button><button class="btn ghost" id="donePipe">Done</button></div></div>`;
@@ -561,9 +561,9 @@ function refreshDerived(s){
   const st=statusOf(s);
   const hp=$("#hdrPt");if(hp)hp.textContent=s.pointNo||"—";
   const hc=$("#hdrChip");if(hc){hc.className="chip "+st;hc.textContent=STATUS_LABEL[st]}
-  const be=$("#bottomElev");if(be){const e=elev(s.rim,s.rimToBottom);be.textContent=e?`Bottom elev ${e}`:""}
+  const be=$("#bottomElev");if(be){const e=elev(s.rim,s.rimToBottom);be.textContent=e?`Bottom EL: ${e}`:""}
   const sel=view.slot;const p=sel?((s.pipes||{})[sel]||{}):{};
-  document.querySelectorAll("[data-elev]").forEach(el=>{const e=elev(s.rim,p[el.dataset.elev]);el.textContent=e?`Elev ${e}`:""});
+  document.querySelectorAll("[data-elev]").forEach(el=>{const e=elev(s.rim,p[el.dataset.elev]);el.textContent=e?`EL: ${e}`:""});
   const pw=$("#pipeWarn");if(pw)pw.innerHTML=warnsHTML(s,sel);
   const pb=$("#planBox");if(pb){pb.innerHTML=planBoxHTML(s,sel);wireSlots(pb)}
 }
@@ -802,7 +802,7 @@ function pipeBlock(s,k){
   const rows=[["SIZE",p.size?p.size+"″":"",null],["MAT",p.mat,null],
     ["INV",depth(p.inv,p.invNote),elev(s.rim,p.inv)||""],["T/PIPE",depth(p.tpipe,p.tpipeNote),elev(s.rim,p.tpipe)||""],
     ["T/WATER",depth(p.twater,p.twaterNote),elev(s.rim,p.twater)||""],["T/DEBRIS",depth(p.tdebris,p.tdebrisNote),elev(s.rim,p.tdebris)||""]];
-  return `<div class="pb"><div class="dir">${k}</div>${rows.map(([l,v,e])=>`<span class="lb">${l}</span>${e===null?`<span class="u" style="grid-column:span 2"><span class="ink">${esc(v||"")}</span></span>`:`${uline(v)}${uline(e,"el")}`}`).join("")}</div>`;
+  return `<div class="pb"><div class="dir">${k}</div>${rows.map(([l,v,e])=>`<span class="lb">${l}</span>${e===null?`<span class="u" style="grid-column:span 2"><span class="ink">${esc(v||"")}</span></span>`:`${uline(v)}${uline(e?"EL: "+e:"","el")}`}`).join("")}</div>`;
 }
 function sheetPageHTML(s,pageNo,pageTotal){
   const ck=(list,val)=>list.map(o=>{const l=Array.isArray(o)?o[0]:o,c=Array.isArray(o)?o[1]:"";return `<div class="ck">${cbx(val===l)}${esc(l)}${c?" "+c:""}</div>`}).join("");
@@ -831,7 +831,7 @@ function sheetPageHTML(s,pageNo,pageTotal){
       <div class="p-side"><div>Point no:${ink(s.pointNo)}</div><div>Rim:${ink(s.rim)}</div><div>Checked by:${ink(s.checkedBy)}</div><div>Date:${ink(fmtDate(s.checkedDate))}</div><div class="na">North arrow<b>↑</b></div></div>
     </div>
     <div class="p-inside">${cbx(!!s.insideDim)} Structure Inside Dimension ${uline(s.insideDim)}</div>
-    <div class="p-com"><div><h4>Comments:</h4>${ink(s.comments)}</div><div class="rb">Rim to bottom of structure:${ink((s.rimToBottom||"")+(s.rimToBottomNote?" "+s.rimToBottomNote:""))}${elev(s.rim,s.rimToBottom)?`<span style="text-transform:none;font-weight:400">Bottom elev ${elev(s.rim,s.rimToBottom)}</span>`:""}</div></div>
+    <div class="p-com"><div><h4>Comments:</h4>${ink(s.comments)}</div><div class="rb">Rim to bottom of structure:${ink((s.rimToBottom||"")+(s.rimToBottomNote?" "+s.rimToBottomNote:""))}${elev(s.rim,s.rimToBottom)?`<span class="ink" style="text-transform:none;font-size:10.5pt;border:0">Bottom EL: ${elev(s.rim,s.rimToBottom)}</span>`:""}</div></div>
     ${qaPrintHTML(s)}
     <div class="p-pipes">${order.map(k=>k==="*"?`<div class="pplan">${planSVG(s,{size:180})}</div>`:pipeBlock(s,k)).join("")}</div>
   </div><div class="p-foot"><span>AEG Job ${esc(s.jobNo||"—")} · Point ${esc(s.pointNo||"—")}${(s.photos||[]).length?` · ${s.photos.length} photo${s.photos.length===1?"":"s"} attached`:""}</span><span>Page ${pageNo} of ${pageTotal}</span></div></article>`;
@@ -864,7 +864,7 @@ function renderPrint(app){
   let pages=[],n=1;
   for(const s of chosen){pages.push(sheetPageHTML(s,n++,total));if(printOpt.photos&&(s.photos||[]).length){const ph=photoPagesHTML(s,per,n,total);n+=ph.length;pages.push(...ph)}}
   app.innerHTML=`<div class="noprint"><div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← ${printOpt.job?esc(projectTitle({job:printOpt.job})):"Projects"}</button><h1>Print</h1></div>
-    <section class="card" style="margin-top:14px"><h2>Pages for the client <small>US Letter, one structure per page</small></h2><div class="body printctl">
+    <section class="card" style="margin-top:14px"><h2>Pages for the client <small>Legal (8.5 × 14 in), one structure per page</small></h2><div class="body printctl">
       <div class="row2"><label class="f"><span>Job</span><select id="pjob"><option value="">All jobs</option>${jobs.filter(j=>j).map(j=>`<option value="${esc(j)}"${j===printOpt.job?" selected":""}>Job ${esc(j||"(none)")}</option>`).join("")}</select></label>
         <label class="f"><span>Photos</span><select id="pph"><option value="0"${!printOpt.photos?" selected":""}>Don't include photos</option>${[1,2,4,6].map(k=>`<option value="${k}"${printOpt.photos&&per===k?" selected":""}>${k} photo${k>1?"s":""} per page</option>`).join("")}</select></label></div>
       <div class="gl" style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Structures (${chosen.length} of ${pool.length} selected) · <button class="iconbtn" id="pall" style="color:var(--ink);min-height:30px">All</button> <button class="iconbtn" id="pnone" style="color:var(--ink);min-height:30px">None</button></div>

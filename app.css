@@ -197,7 +197,7 @@ body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
 .pages{display:flex;flex-direction:column;align-items:center;gap:18px;margin-top:18px;transform-origin:top left}
 .pagescroll{overflow:hidden}
 .pg{--pipe:#111;--muted:#555;--line:#bbb;--ink2:#1D3A8A;
-  width:8.5in;height:11in;padding:.42in .45in .35in;box-sizing:border-box;background:#fff;color:#111;
+  width:8.5in;height:14in;padding:.42in .45in .35in;box-sizing:border-box;background:#fff;color:#111;
   font-family:var(--f-body);font-size:9.5pt;line-height:1.25;display:flex;flex-direction:column;
   box-shadow:0 1px 3px rgba(0,0,0,.25),0 8px 24px rgba(0,0,0,.12);overflow:hidden;
   -webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -253,7 +253,7 @@ body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
 .phcell .cp{padding:4px 6px;font-size:8pt;border-top:.8pt solid #999;display:flex;justify-content:space-between;gap:8px}
 .phcell .cp b{font-weight:600}
 .phcell .cp span{color:#555;font-family:var(--f-mono);font-size:7pt;text-align:right}
-@page{size:letter;margin:.35in}
+@page{size:legal;margin:.35in}
 @media print{
   html,body{background:#fff!important}
   .bar,.actions,.noprint,#toast,#upd,#lb,.installcard{display:none!important}
@@ -264,7 +264,7 @@ body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
   .pages{width:auto!important}
   /* fit inside the printable area with slack, so no page ever spills onto a blank sheet */
   .pg{box-shadow:none!important;break-after:page;page-break-after:always;break-inside:avoid;page-break-inside:avoid;margin:0!important;
-      width:100%!important;height:9.95in!important;padding:0!important}
+      width:100%!important;height:12.9in!important;padding:0!important}
   .pg:last-child{break-after:auto;page-break-after:auto}
 }
 .logo{height:36px;width:auto;background:#fff;border-radius:4px;padding:3px 4px;display:block;flex:none}
@@ -335,39 +335,33 @@ body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
 .p-qa .qa-r{border-left:1.2pt solid #111;display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-start;gap:2px}
 .p-qa .qa-r img{height:.4in;max-width:100%;object-fit:contain}
 .p-qa .qa-r span{font-size:7pt;font-weight:600;text-transform:uppercase;border-top:.8pt solid #111;width:100%;padding-top:2px}
-/* make room for the QA/QC strip on one page */
-.p-head{padding:.1in .16in}
-.p-mid>div{padding:.07in .12in}
-.ck{margin:1px 0}
-.p-com{min-height:.62in}
-.p-qa{min-height:.5in}
-.p-qa .qa-r img{height:.32in}
-.p-pipes{gap:.03in .14in;padding:.07in .14in}
-.pb{row-gap:1px;font-size:7.3pt}
-.pb .u{font-size:8.2pt;min-height:1.05em}
-.pplan svg{width:1.6in;height:1.6in}
 
 /* required information */
 .f input.missing{border-color:var(--warn);box-shadow:0 0 0 1px var(--warn) inset}
 .edgrid > section.gated{opacity:.42;filter:grayscale(.6)}
 .chip.signed{color:var(--ok);background:var(--ok-soft);border-color:transparent}
 
-/* print fixes (2.6.2): never cut values off; always one page on Letter or A4 from any device */
-.pg .u{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.15}
-.pb{grid-template-columns:auto 1.15fr 1fr}
-.pb .u.el{font-family:var(--f-mono);font-size:8.2pt}
-.p-fields{gap:4px}
-.p-mid .ck{font-size:7.9pt}
-@page{size:letter;margin:.3in}
-@media print{
-  /* Phones and some browsers add their own header/footer (address, date, page count); leave room for it on Letter and A4 */
-  .pg{height:9.15in!important;max-width:7.6in;margin:0 auto!important;font-size:9pt}
-  .p-head{padding:.07in .12in}
-  .p-co .plogo{height:.68in}
-  .p-mid>div{padding:.05in .1in}
-  .p-com{min-height:.5in}
-  .p-qa{min-height:.45in}
-  .p-pipes{padding:.05in .12in}
-  .pplan svg{width:1.4in;height:1.4in}
-  .p-foot{padding-top:2px}
-}
+
+/* ===== Legal (8.5 x 14 in) printed sheet, full size: the extra height goes to readable spacing ===== */
+.pg .u{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.2;min-height:1.25em}
+.p-fields{gap:7px;font-size:8.5pt}
+.p-fields .u{font-size:10pt}
+.p-mid>div{padding:.12in .14in}
+.ck{font-size:8.6pt;margin:3px 0}
+.p-side>div .ink{font-size:12pt}
+.p-com{min-height:1.15in}
+.p-com .ink{font-size:10.5pt}
+.p-com .rb .ink{font-size:12pt}
+.p-qa{min-height:.85in}
+.p-qa .qa-r img{height:.5in}
+.p-pipes{gap:.1in .18in;padding:.14in .16in}
+.pb{grid-template-columns:auto 1fr 1fr;column-gap:6px;row-gap:5px;font-size:8.6pt}
+.pb .dir{font-size:8pt}
+.pb .u{font-size:10pt}
+.pb .u.el{font-family:var(--f-mono);font-size:9.5pt}
+.pplan svg{width:2.2in;height:2.2in}
+.p-foot{font-size:7.5pt}
+.pb{grid-template-columns:auto 1.4fr 1fr}
+/* elevation column sizes to its value and never wraps; the depth/note column takes the rest */
+.pb{grid-template-columns:auto minmax(0,1fr) max-content}
+.pb .u.el{white-space:nowrap;min-width:.95in}
