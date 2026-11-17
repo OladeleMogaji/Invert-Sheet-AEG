@@ -253,7 +253,7 @@ body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
 .phcell .cp{padding:4px 6px;font-size:8pt;border-top:.8pt solid #999;display:flex;justify-content:space-between;gap:8px}
 .phcell .cp b{font-weight:600}
 .phcell .cp span{color:#555;font-family:var(--f-mono);font-size:7pt;text-align:right}
-@page{size:legal;margin:.35in}
+@page{size:letter;margin:.35in}
 @media print{
   html,body{background:#fff!important}
   .bar,.actions,.noprint,#toast,#upd,#lb,.installcard{display:none!important}
@@ -365,3 +365,41 @@ body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
 /* elevation column sizes to its value and never wraps; the depth/note column takes the rest */
 .pb{grid-template-columns:auto minmax(0,1fr) max-content}
 .pb .u.el{white-space:nowrap;min-width:.95in}
+
+
+/* ===== v2.8: one page per sheet on ANY paper (Letter, A4, Legal) and any device =====
+   The sheet is a fixed 7.5 x 10.1 in box: fits Letter and A4 inside .35 in margins.
+   iPhone/iPad/Safari add their own margins + header/footer, so there the box is zoomed to 92%. */
+.pg{width:8.5in;height:11in;padding:.45in .5in .45in;font-size:9pt}
+.p-head{grid-template-columns:2.55in 1fr;gap:.12in;padding:.08in .12in}
+.p-co{font-size:7pt;gap:1px}
+.p-co .plogo{height:.58in;margin-bottom:2px}
+.p-fields{gap:3px;font-size:7.6pt}
+.p-fields .u{font-size:9.5pt}
+.p-mid{grid-template-columns:1.3fr 1fr .95fr 1.05in}
+.p-mid>div{padding:.07in .1in}
+.p-mid h4,.p-com h4,.p-qa h4{font-size:8pt;margin:0 0 2px}
+.ck{font-size:8pt;margin:1px 0;line-height:1.2;gap:5px}
+.p-side>div{padding:3px 6px;font-size:7pt}
+.p-side>div .ink{font-size:10.5pt}
+.p-inside{padding:3px .1in;font-size:7.6pt}
+.p-com{min-height:.78in;grid-template-columns:1fr 2in}
+.p-com>div{padding:.05in .1in}
+.p-com .ink{font-size:9.5pt}
+.p-com .rb{font-size:7pt}
+.p-com .rb .ink{font-size:10.5pt}
+.p-qa{min-height:.66in;grid-template-columns:1fr 2.4in}
+.p-qa>div{padding:.05in .1in}
+.p-qa .qa-r img{height:.4in}
+.p-pipes{grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(3,minmax(0,1fr));gap:.04in .14in;padding:.06in .12in}
+.pb{grid-template-columns:auto minmax(.45in,1fr) max-content;column-gap:5px;row-gap:1px;font-size:7.6pt;align-content:center}
+.pb .dir{font-size:7.4pt}
+.pb .u{font-size:9pt;min-height:1.2em}
+.pb .u.el{font-size:8.6pt;min-width:.8in}
+.pplan svg{width:1.45in;height:1.45in}
+.p-foot{font-size:7pt;padding-top:3px}
+.pg.photos .ph-head b{font-size:13pt}
+@media print{
+  .pg{width:7.5in!important;height:10.1in!important;padding:0!important;overflow:hidden!important}
+  html.wk .pg{zoom:.92}
+}

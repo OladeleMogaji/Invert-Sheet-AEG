@@ -1,7 +1,7 @@
 /* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="2.7.0";
+const APP_VERSION="2.8.0";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
@@ -846,6 +846,15 @@ function photoPagesHTML(s,per,startNo,pageTotal){
   }
   return out;
 }
+/* Safari / every iPhone & iPad browser add their own print margins, header and footer: shrink the page box a little there */
+(function(){const ua=navigator.userAgent;const ios=/iPad|iPhone|iPod/.test(ua)||(/Macintosh/.test(ua)&&navigator.maxTouchPoints>1);
+  const safari=/Safari/.test(ua)&&!/Chrome|Chromium|CriOS|Edg|OPR|Android|FxiOS/.test(ua);if(ios||safari)document.documentElement.classList.add("wk")})();
+/* If a sheet holds more writing than the page has room for, scale that one sheet down until it fits: never a second page */
+function fitSheets(){
+  document.querySelectorAll(".pg").forEach(pg=>{const f=pg.querySelector(".frame,.phgrid");if(!f||!pg.querySelector(".frame"))return;
+    const over=()=>pg.scrollHeight>pg.clientHeight+1||[...pg.querySelectorAll(".pb,.pplan")].some(x=>x.scrollHeight>x.clientHeight+1);
+    f.style.zoom="";let k=1;while(over()&&k>.5){k=+(k-.03).toFixed(2);f.style.zoom=k}});
+}
 function fitPages(){
   const sc=$(".pagescroll"),pg=$(".pages");if(!sc||!pg)return;
   const W=816,avail=sc.clientWidth;const k=Math.min(1,avail/W);
@@ -864,7 +873,7 @@ function renderPrint(app){
   let pages=[],n=1;
   for(const s of chosen){pages.push(sheetPageHTML(s,n++,total));if(printOpt.photos&&(s.photos||[]).length){const ph=photoPagesHTML(s,per,n,total);n+=ph.length;pages.push(...ph)}}
   app.innerHTML=`<div class="noprint"><div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← ${printOpt.job?esc(projectTitle({job:printOpt.job})):"Projects"}</button><h1>Print</h1></div>
-    <section class="card" style="margin-top:14px"><h2>Pages for the client <small>Legal (8.5 × 14 in), one structure per page</small></h2><div class="body printctl">
+    <section class="card" style="margin-top:14px"><h2>Pages for the client <small>One page per structure (Letter, A4 or Legal), then its photos</small></h2><div class="body printctl">
       <div class="row2"><label class="f"><span>Job</span><select id="pjob"><option value="">All jobs</option>${jobs.filter(j=>j).map(j=>`<option value="${esc(j)}"${j===printOpt.job?" selected":""}>Job ${esc(j||"(none)")}</option>`).join("")}</select></label>
         <label class="f"><span>Photos</span><select id="pph"><option value="0"${!printOpt.photos?" selected":""}>Don't include photos</option>${[1,2,4,6].map(k=>`<option value="${k}"${printOpt.photos&&per===k?" selected":""}>${k} photo${k>1?"s":""} per page</option>`).join("")}</select></label></div>
       <div class="gl" style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Structures (${chosen.length} of ${pool.length} selected) · <button class="iconbtn" id="pall" style="color:var(--ink);min-height:30px">All</button> <button class="iconbtn" id="pnone" style="color:var(--ink);min-height:30px">None</button></div>
@@ -882,7 +891,7 @@ function renderPrint(app){
   $("#pnone").onclick=()=>{printOpt.sel=new Set();renderPrint(app)};
   app.querySelectorAll("[data-ps]").forEach(c=>c.onchange=()=>{const set=printOpt.sel?new Set(printOpt.sel):new Set(pool.map(s=>s.id));c.checked?set.add(c.dataset.ps):set.delete(c.dataset.ps);printOpt.sel=set;renderPrint(app)});
   const imgsReady=hydrateImgs(app).then(()=>Promise.all([...app.querySelectorAll(".pages img")].map(i=>i.decode?i.decode().catch(()=>{}):null))).then(fitPages);
-  fitPages();
+  fitPages();fitSheets();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{fitSheets();fitPages()});
   const stem=`AEG-${printOpt.job?"Job"+clean(printOpt.job):"Invert"}-Sheets-${today()}`;
   setActions([
     nPh?{label:"Download photos (ZIP)",cls:"ghost",fn:()=>buildZip(chosen,stem+"-photos.zip",{csv:false,backup:false})}:null,
