@@ -56,3 +56,13 @@ Put them in `config.js` (or send them to whoever maintains the app). Never put t
   **Restore** to wake it. Daily use keeps it awake.
 - Upgrade to Pro ($25/month, 100 GB) when photo storage gets close to 1 GB:
   Project Settings → Billing.
+
+## Deleting projects (app version 2.9.0)
+
+Run `setup/2026-11-24-delete-projects.sql` once in **SQL Editor → New query → Run**.
+
+- Only an **admin** can delete a project (project page → **Delete project**), restore it, or delete it forever (**Menu → Deleted projects**).
+- Everyone sees **Menu → Deleted projects** with who deleted each project and when.
+- **Delete forever** removes the structures and photos, but the line saying who deleted it stays.
+- Every delete, restore and delete-forever is also written to the **project_log** table (Table Editor → project_log) with the person's name and time. Nobody can change those rows from the app.
+- Without the script the app still works, but the database won't stop a non-admin device and nothing goes into project_log.

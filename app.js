@@ -1,7 +1,7 @@
 /* AEG Invert Sheet — offline field app. All data lives on the device (IndexedDB). */
 (() => {
 "use strict";
-const APP_VERSION="2.8.0";
+const APP_VERSION="2.9.0";
 const STRUCTS=[["Catch Basin","306"],["Standard Inlet","339"],["Storm Sewer MH","338"],["Sanitary Sewer MH","337"],["Valve Vault","346"],["Outlet Control Struct","351"],["Manhole","351"],["Cleanout","383"],["Handhole","274"],["Vault (gas/elec/tele)","345"],["Other",""]];
 const LIDS=["Closed","Open","Beehive","Bolted"];
 const SHAPES=["Round","Rectangle","Square"];
@@ -57,6 +57,7 @@ const statusOf=s=>{
   if(s.checkedBy&&s.checkedBy.trim()&&!cloud.on)return "checked";
   return "draft";
 };
+const isAdmin=()=>!!(cloud.on&&cloud.session&&cloud.me&&cloud.me.role==="admin");
 const canApprove=()=>!!(cloud.on&&cloud.session&&cloud.me&&["supervisor","admin"].includes(cloud.me.role));
 const isLocked=s=>false; // sign-off no longer locks a sheet
 
@@ -80,7 +81,9 @@ function fmtDate(iso){if(!iso)return "";const [y,m,d]=iso.split("-");return y&&m
 const hasData=p=>p&&Object.values(p).some(v=>String(v||"").trim());
 const pipeCount=s=>Object.values(s.pipes||{}).filter(hasData).length;
 function elev(rim,depth){const r=num(rim),d=num(depth);return r!==null&&d!==null?(r-d).toFixed(2):null}
-const visibleSheets=()=>Object.values(sheets).filter(x=>x.kind!=="project").sort((a,b)=>(b.updatedAt||"").localeCompare(a.updatedAt||""));
+const allSheets=()=>Object.values(sheets).filter(x=>x.kind!=="project");
+// Sheets of a deleted project are hidden everywhere (lists, print, export) until an admin restores the project.
+const visibleSheets=()=>{const t=trashedJobs();return allSheets().filter(x=>!t.has(x.jobNo||"")).sort((a,b)=>(b.updatedAt||"").localeCompare(a.updatedAt||""))};
 /* ---------- backup tracking + reminder ---------- */
 const needsBackup=s=>!isSynced(s)&&(!s.exportedAt||(s.updatedAt||"")>s.exportedAt);
 const EST_PHOTO=900000;
@@ -226,13 +229,59 @@ function installCardHTML(){
 const isProj=x=>x&&x.kind==="project";
 const projRecords=()=>Object.values(sheets).filter(isProj);
 function projectRecord(job){return projRecords().filter(p=>(p.jobNo||"")===job).sort((a,b)=>(b.updatedAt||"").localeCompare(a.updatedAt||""))[0]||null}
+/* ---------- deleted projects ----------
+   trash  = {byId, byName, at}: deleted by an admin; hidden from everyone, can be restored.
+   purged = {byId, byName, at}: deleted forever; the structures and photos are gone, but this record of who did it stays. */
+function latestProjRecs(){const m=new Map();for(const p of projRecords()){const j=p.jobNo||"";const c=m.get(j);if(!c||(p.updatedAt||"")>(c.updatedAt||""))m.set(j,p)}return m}
+const isTrashed=r=>!!(r&&((r.trash&&r.trash.at)||(r.purged&&r.purged.at)));
+function trashedJobs(){const s=new Set();for(const [j,p] of latestProjRecs())if(isTrashed(p))s.add(j);return s}
+function deletedProjects(){
+  return [...latestProjRecs().values()].filter(isTrashed).map(r=>{const list=allSheets().filter(x=>(x.jobNo||"")===(r.jobNo||""));
+    return {job:r.jobNo||"",rec:r,name:r.project||"",location:r.location||"",sheets:list,photos:list.reduce((a,x)=>a+(x.photos||[]).length,0)}})
+   .sort((a,b)=>((b.rec.purged||b.rec.trash).at||"").localeCompare((a.rec.purged||a.rec.trash).at||""));
+}
+const meStamp=()=>{const me=cloud.me||{};return {byId:me.id||null,byName:me.full_name||me.email||"Unknown",at:new Date().toISOString()}};
+function trashProject(job){
+  if(!isAdmin())return;
+  let rec=projectRecord(job);
+  if(!rec){const g=projectList().find(x=>x.job===job)||{};const now=new Date().toISOString();
+    rec={id:rid("p_"),kind:"project",jobNo:job,project:g.name||"",location:g.location||"",clientJobNo:g.client||"",initials:g.initials||"",photos:[],createdAt:now,updatedAt:now};sheets[rec.id]=rec}
+  update(rec.id,{trash:meStamp(),purged:null},{now:true});flushSaves();syncSoon(300);
+}
+function restoreProject(job){
+  if(!isAdmin())return;const rec=projectRecord(job);if(!rec||!rec.trash||rec.purged)return;
+  update(rec.id,{trash:null,restored:Object.assign(meStamp(),{deletedBy:rec.trash.byName,deletedAt:rec.trash.at})},{now:true});flushSaves();syncSoon(300);
+}
+async function purgeProject(job){
+  if(!isAdmin())return;const rec=projectRecord(job);if(!rec||!rec.trash)return;
+  const gone=[...allSheets().filter(x=>(x.jobNo||"")===job),...projRecords().filter(p=>(p.jobNo||"")===job&&p.id!==rec.id)];
+  for(const s of gone){if(cloud.on)addTomb(s);for(const p of (s.photos||[]))dbDelPhoto(p.key).catch(()=>{});clearTimeout(saveTimers.get(s.id));saveTimers.delete(s.id);delete sheets[s.id];await dbDelSheet(s.id).catch(()=>{})}
+  update(rec.id,{purged:Object.assign(meStamp(),{structures:gone.filter(x=>!isProj(x)).length})},{now:true});flushSaves();syncSoon(300);
+}
+function deletedCardHTML(){
+  const list=deletedProjects();if(!list.length)return "";
+  const adm=isAdmin();
+  return `<section class="card" style="margin-top:14px"><h2>Deleted projects <small>${adm?"Only admins can restore or delete forever":"Only an admin can restore these"}</small></h2><div class="body"><div class="rows">${list.map(d=>{const r=d.rec,t=r.trash||{},pg=r.purged;
+    return `<div class="delrow"><div><b>${esc(projectTitle(d))}</b>${d.name?" · "+esc(d.name):""}${d.location?` <span class="calc">${esc(d.location)}</span>`:""}
+      <div class="sub">${pg?`<strong>Deleted forever</strong> by ${esc(pg.byName)} on ${esc(fmtWhen(pg.at))}${pg.structures!=null?` · ${pg.structures} structure${pg.structures===1?"":"s"} removed`:""}<br>First deleted by ${esc(t.byName||"—")} on ${esc(fmtWhen(t.at))}`
+        :`<strong>Deleted by ${esc(t.byName||"—")}</strong> on ${esc(fmtWhen(t.at))} · ${d.sheets.length} structure${d.sheets.length===1?"":"s"}, ${d.photos} photo${d.photos===1?"":"s"}`}</div></div>
+      ${adm&&!pg?(view.purgeJob===d.job?`<div class="confirm" style="margin:6px 0 0"><p>Delete Job ${esc(d.job)} forever? Its ${d.sheets.length} structure${d.sheets.length===1?"":"s"} and ${d.photos} photo${d.photos===1?"":"s"} are removed from every device and the database. This can't be undone. The record of who deleted it stays.</p><button class="btn ghost" data-purgeno>Keep it</button><button class="btn danger" data-purgeyes="${esc(d.job)}">Delete forever</button></div>`
+        :`<div class="delbtns"><button class="btn" data-restore="${esc(d.job)}">Restore</button><button class="btn danger" data-purge="${esc(d.job)}">Delete forever</button></div>`):""}</div>`}).join("")}</div></div></section>`;
+}
+function wireDeletedCard(app){
+  app.querySelectorAll("[data-restore]").forEach(b=>b.onclick=()=>{restoreProject(b.dataset.restore);toast(`Job ${b.dataset.restore} restored`);render()});
+  app.querySelectorAll("[data-purge]").forEach(b=>b.onclick=()=>{view.purgeJob=b.dataset.purge;render()});
+  app.querySelectorAll("[data-purgeno]").forEach(b=>b.onclick=()=>{view.purgeJob=null;render()});
+  app.querySelectorAll("[data-purgeyes]").forEach(b=>b.onclick=async()=>{const j=b.dataset.purgeyes;b.disabled=true;await purgeProject(j);view.purgeJob=null;toast(`Job ${j} deleted forever`);render()});
+}
 function projectList(){
   const map=new Map();
   const get=job=>{if(!map.has(job))map.set(job,{job,rec:null,sheets:[],last:""});return map.get(job)};
   for(const p of projRecords()){const g=get(p.jobNo||"");if(!g.rec||(p.updatedAt||"")>(g.rec.updatedAt||""))g.rec=p;if((p.updatedAt||"")>g.last)g.last=p.updatedAt}
   for(const x of visibleSheets()){const g=get(x.jobNo||"");g.sheets.push(x);if((x.updatedAt||"")>g.last)g.last=x.updatedAt}
   for(const g of map.values()){const src=g.rec||g.sheets[0]||{};g.name=src.project||"";g.location=src.location||"";g.client=src.clientJobNo||"";g.initials=src.initials||""}
-  return [...map.values()].sort((a,b)=>(b.last||"").localeCompare(a.last||""));
+  const t=trashedJobs();
+  return [...map.values()].filter(g=>!t.has(g.job)).sort((a,b)=>(b.last||"").localeCompare(a.last||""));
 }
 function projectTitle(g){return g.job?`Job ${g.job}`:"No job number"}
 function sheetRowHTML(s){
@@ -313,7 +362,8 @@ function openProject(job){filter.q="";filter.job=job;view={name:"project",job};r
 function openNewProject(){view={name:"newproject"};render();scrollTo(0,0)}
 
 function renderProject(app){
-  const job=view.job||"";const g=projectList().find(x=>x.job===job)||{job,rec:null,sheets:[],name:"",location:"",client:"",initials:""};
+  const job=view.job||"";
+  if(trashedJobs().has(job)){const r=projectRecord(job)||{};const t=r.purged||r.trash||{};toast(`Job ${job} was deleted by ${t.byName||"an admin"}`,5000);view={name:"list"};render();return}const g=projectList().find(x=>x.job===job)||{job,rec:null,sheets:[],name:"",location:"",client:"",initials:""};
   const q=filter.q.trim().toLowerCase();
   const list=g.sheets.filter(x=>!q||matches(x,q)).sort((a,b)=>String(a.pointNo).localeCompare(String(b.pointNo),undefined,{numeric:true}));
   let h=`<div class="edhead"><button class="iconbtn" id="back" style="color:var(--ink)">← Projects</button><h1>${esc(projectTitle(g))}</h1><button class="iconbtn" id="editProj" style="color:var(--ink)">Edit details</button></div>`;
@@ -329,8 +379,14 @@ function renderProject(app){
   if(!g.sheets.length)h+=`<div class="empty"><b>No structures yet</b>Tap <strong>New structure</strong>. The job number, project, location and initials fill in automatically.</div>`;
   else if(!list.length)h+=`<div class="empty"><b>No matches</b>Try a different point number.</div>`;
   else h+=`<div class="rows">${list.map(sheetRowHTML).join("")}</div>`;
+  if(isAdmin()){const np=g.sheets.reduce((a,x)=>a+(x.photos||[]).length,0);
+    h+=view.confirmDelProj?`<div class="confirm" style="margin-top:22px"><p>Delete Job ${esc(job)}${g.name?" ("+esc(g.name)+")":""}? Its ${g.sheets.length} structure${g.sheets.length===1?"":"s"} and ${np} photo${np===1?"":"s"} disappear from everyone's list. It moves to <strong>Menu → Deleted projects</strong> with your name and the time, and an admin can restore it.</p><button class="btn ghost" id="noDelProj">Keep it</button><button class="btn danger" id="yesDelProj">Delete project</button></div>`
+      :`<div style="margin-top:22px"><button class="btn danger" id="delProj">Delete project</button></div>`}
   app.innerHTML=h;
   wireSearch(app,renderProject);wireCommon(app);
+  const dpj=$("#delProj");if(dpj)dpj.onclick=()=>{view.confirmDelProj=true;render()};
+  const npj=$("#noDelProj");if(npj)npj.onclick=()=>{view.confirmDelProj=false;render()};
+  const ypj=$("#yesDelProj");if(ypj)ypj.onclick=()=>{trashProject(job);toast(`Job ${job} deleted. Restore it from Menu → Deleted projects.`,5000);filter.q="";view={name:"list"};render();scrollTo(0,0)};
   $("#back").onclick=()=>{filter.q="";view={name:"list"};render();scrollTo(0,0)};
   $("#editProj").onclick=()=>{view={name:"newproject",editJob:job};render();scrollTo(0,0)};
   const fp=$("#fixProj");if(fp)fp.onclick=()=>{view={name:"newproject",editJob:job};render();scrollTo(0,0)};
@@ -364,9 +420,10 @@ function renderNewProject(app){
     const miss=need.filter(([v])=>!v);
     if(miss.length){for(const [,sel] of miss)$(sel).classList.add("missing");err.textContent=`Fill in the ${listWords(miss.map(m=>m[2]))}.`;err.hidden=false;$(miss[0][1]).focus();return}
     const exists=projectList().find(x=>x.job===nj);
+    if(nj!==job){const dr=projectRecord(nj);if(dr&&dr.trash&&!dr.purged){$("#npJob").classList.add("missing");err.textContent=`Job ${nj} is in Deleted projects (deleted by ${dr.trash.byName} on ${fmtWhen(dr.trash.at)}). ${isAdmin()?"Restore it from Menu → Deleted projects":"Ask an admin to restore it"} instead of starting it again.`;err.hidden=false;return}}
     if(!editing&&exists){toast(`Job ${nj} already exists. Opened it.`);openProject(nj);return}
     if(editing&&nj!==job&&exists){err.textContent=`Job ${nj} already exists. Use a different number.`;err.hidden=false;return}
-    let rec=editing?projectRecord(job):null;
+    let rec=editing?projectRecord(job):null;if(rec&&isTrashed(rec))rec=null;
     if(!rec){const now=new Date().toISOString();rec={id:rid("p_"),kind:"project",jobNo:nj,photos:[],createdAt:now,updatedAt:now};sheets[rec.id]=rec}
     update(rec.id,Object.assign({jobNo:nj},d),{now:true});
     if(editing){ // a new job number moves every structure; project details follow the project record
@@ -669,6 +726,7 @@ async function renderMenu(app){
      <label class="f" style="max-width:220px"><span>Time</span><input type="time" id="rmTime" value="${remindPrefs().time}"></label>
      <p style="margin:0;color:var(--muted);font-size:14px">After this time, the sheet list shows a reminder until all of the day's work is backed up. It also shows if anything has gone unbacked for 20 hours.</p>
    </div></section>
+   ${deletedCardHTML()}
    <section class="card" style="margin-top:14px"><h2>This device</h2><div class="body"><div class="storage" id="stor" style="margin:0">Checking storage…</div>
    <div class="calc">App version ${APP_VERSION} · ${isStandalone()?"installed":"running in browser"}</div>
    <div><button class="btn ghost" id="chkUpd">Check for updates</button></div></div></section>`;
@@ -680,6 +738,7 @@ async function renderMenu(app){
   rt.onchange=()=>{if(/^\d\d:\d\d$/.test(rt.value)){saveRemind({on:ro.checked,time:rt.value});toast(`Reminder set for ${fmtTime(rt.value)}`)}};
   wireAccountCard();
   $("#mNewProj").onclick=()=>openNewProject();
+  wireDeletedCard(app);
   const cu=$("#chkUpd");if(cu)cu.onclick=async()=>{
     if(!swReg){toast("Updates aren't available in this view.");return}
     cu.disabled=true;cu.textContent="Checking…";
@@ -995,7 +1054,7 @@ async function syncNow({manual=false}={}){
       const {data,error}=await cloud.sb.rpc("push_sheet",{p_id:s.id,p_data:stripLocal(s),p_updated_at:s.updatedAt,p_deleted:false});
       if(error)throw error;
       const row=Array.isArray(data)?data[0]:data;
-      const qaKey=q=>q?[q.status,q.at,q.byId].join("|"):"";const qaDiff=row&&row.data&&qaKey(row.data.qa)!==qaKey(s.qa);
+      const qaKey=q=>q?[q.status,q.at,q.byId].join("|"):"";const stKey=d=>[qaKey(d.qa),d.trash&&d.trash.at,d.purged&&d.purged.at].join("~");const qaDiff=row&&row.data&&!row.deleted&&stKey(row.data)!==stKey(s);
       if(row&&(new Date(row.updated_at).getTime()>new Date(s.updatedAt).getTime()||qaDiff)){
         const r=Object.assign({},row.data,{id:s.id});r.syncedAt=r.updatedAt;await adoptRemote(r);pulled++;
       }else{s.syncedAt=s.updatedAt;s.pushAgain=false;await saveQuiet(s);pushed++}

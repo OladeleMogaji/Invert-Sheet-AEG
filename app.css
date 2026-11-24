@@ -403,3 +403,9 @@ body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
   .pg{width:7.5in!important;height:10.1in!important;padding:0!important;overflow:hidden!important}
   html.wk .pg{zoom:.92}
 }
+
+/* deleted projects */
+.delrow{border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;display:flex;flex-direction:column;gap:6px;background:var(--surface)}
+.delrow .sub{color:var(--muted);font-size:13px;margin-top:3px;line-height:1.4}
+.delrow .sub strong{color:var(--bad)}
+.delbtns{display:flex;gap:8px;flex-wrap:wrap}
